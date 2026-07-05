@@ -22,8 +22,7 @@ import org.junit.Test
 class ChatControllerStreamReplayTest {
   private val json = Json { ignoreUnknownKeys = true }
 
-  private fun TestScope.newController(gateway: ScriptedGateway): ChatController =
-    ChatController(scope = this, json = json, requestGateway = gateway::request)
+  private fun TestScope.newController(gateway: ScriptedGateway): ChatController = ChatController(scope = this, json = json, requestGateway = gateway::request)
 
   private fun transcript(controller: ChatController): List<Pair<String, String?>> =
     controller.messages.value.map { message ->
@@ -42,7 +41,10 @@ class ChatControllerStreamReplayTest {
       assertTrue(controller.sendMessageAwaitAcceptance("Hello there", "off", emptyList()))
       val runId = requireNotNull(gateway.lastRunId)
       assertEquals(1, controller.pendingRunCount.value)
-      val optimisticUserId = controller.messages.value.single { it.role == "user" }.id
+      val optimisticUserId =
+        controller.messages.value
+          .single { it.role == "user" }
+          .id
 
       controller.handleGatewayEvent("chat", chatDeltaPayload("main", runId, 1, "Str", "Str"))
       assertEquals("Str", controller.streamingAssistantText.value)
@@ -71,7 +73,12 @@ class ChatControllerStreamReplayTest {
         transcript(controller),
       )
       // Gateway copy replaces the optimistic echo in place: same row identity, no duplicate.
-      assertEquals(optimisticUserId, controller.messages.value.single { it.role == "user" }.id)
+      assertEquals(
+        optimisticUserId,
+        controller.messages.value
+          .single { it.role == "user" }
+          .id,
+      )
       assertEquals(0, controller.pendingRunCount.value)
       assertNull(controller.streamingAssistantText.value)
       assertNull(controller.errorText.value)
@@ -162,7 +169,10 @@ class ChatControllerStreamReplayTest {
 
       assertTrue(controller.sendMessageAwaitAcceptance("survive reconnect", "off", emptyList()))
       val runId = requireNotNull(gateway.lastRunId)
-      val optimisticUserId = controller.messages.value.single { it.role == "user" }.id
+      val optimisticUserId =
+        controller.messages.value
+          .single { it.role == "user" }
+          .id
 
       controller.handleGatewayEvent(
         "chat",
@@ -203,7 +213,12 @@ class ChatControllerStreamReplayTest {
         listOf("user" to "survive reconnect", "assistant" to "Recovered reply."),
         transcript(controller),
       )
-      assertEquals(optimisticUserId, controller.messages.value.single { it.role == "user" }.id)
+      assertEquals(
+        optimisticUserId,
+        controller.messages.value
+          .single { it.role == "user" }
+          .id,
+      )
       assertEquals("session-1", controller.sessionId.value)
 
       // Disconnect cancelled the 120s ack timer: the converged transcript must not decay.

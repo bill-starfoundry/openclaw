@@ -202,7 +202,11 @@ internal fun parseGatewayEndpointResult(rawInput: String): GatewayEndpointParseR
   val uri =
     runCatching { URI(normalized) }.getOrNull()
       ?: return GatewayEndpointParseResult(error = GatewayEndpointValidationError.INVALID_URL)
-  val host = uri.host?.trim()?.trim('[', ']').orEmpty()
+  val host =
+    uri.host
+      ?.trim()
+      ?.trim('[', ']')
+      .orEmpty()
   if (host.isEmpty()) return GatewayEndpointParseResult(error = GatewayEndpointValidationError.INVALID_URL)
   // OkHttp rejects scoped IPv6 hosts after URI decoding, so fail before saving an endpoint that can never dial.
   if (host.contains(':') && host.contains('%')) {
@@ -332,7 +336,12 @@ internal fun resolveDefaultManualGatewayPort(
   hostInput: String,
   tls: Boolean,
 ): Int {
-  val host = hostInput.trim().trimEnd('/').removeSuffix(".").lowercase(Locale.US)
+  val host =
+    hostInput
+      .trim()
+      .trimEnd('/')
+      .removeSuffix(".")
+      .lowercase(Locale.US)
   return if (tls && host.endsWith(".ts.net")) tailnetTlsGatewayPort else defaultManualGatewayPort
 }
 

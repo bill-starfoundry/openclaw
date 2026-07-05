@@ -1,8 +1,8 @@
 package ai.openclaw.app.chat
 
-import ai.openclaw.app.resolveAgentIdFromMainSessionKey
 import ai.openclaw.app.gateway.GatewaySession
 import ai.openclaw.app.gateway.parseChatSendAck
+import ai.openclaw.app.resolveAgentIdFromMainSessionKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -251,8 +251,7 @@ class ChatController internal constructor(
     return key
   }
 
-  private fun resolveAgentIdForSessionKey(parentKey: String): String =
-    resolveAgentIdFromMainSessionKey(parentKey) ?: "main"
+  private fun resolveAgentIdForSessionKey(parentKey: String): String = resolveAgentIdFromMainSessionKey(parentKey) ?: "main"
 
   /** Queues a chat send without waiting for gateway acceptance. */
   fun sendMessage(
@@ -975,8 +974,12 @@ internal fun parseChatMessageContents(obj: JsonObject): List<ChatMessageContent>
   return emptyList()
 }
 
-private fun parseCreatedSessionKey(json: Json, sessionJson: String): String? {
+private fun parseCreatedSessionKey(
+  json: Json,
+  sessionJson: String,
+): String? {
   val root = runCatching { json.parseToJsonElement(sessionJson).asObjectOrNull() }.getOrNull() ?: return null
+
   fun clean(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
   return clean(root["key"].asStringOrNull())
     ?: clean(root["sessionKey"].asStringOrNull())

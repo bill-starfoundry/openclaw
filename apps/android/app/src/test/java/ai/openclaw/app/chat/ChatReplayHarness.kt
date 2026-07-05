@@ -15,7 +15,9 @@ import kotlinx.serialization.json.jsonPrimitive
  * chat/agent events through ChatController.handleGatewayEvent under
  * kotlinx-coroutines-test virtual time.
  */
-internal class ScriptedGateway(private val json: Json) {
+internal class ScriptedGateway(
+  private val json: Json,
+) {
   data class Call(
     val method: String,
     val paramsJson: String?,
@@ -54,7 +56,13 @@ internal class ScriptedGateway(private val json: Json) {
     respond("chat.send") { paramsJson ->
       val runId =
         paramsJson
-          ?.let { json.parseToJsonElement(it).jsonObject["idempotencyKey"]?.jsonPrimitive?.content }
+          ?.let {
+            json
+              .parseToJsonElement(it)
+              .jsonObject["idempotencyKey"]
+              ?.jsonPrimitive
+              ?.content
+          }
       lastRunId = runId
       buildJsonObject {
         if (runId != null) put("runId", JsonPrimitive(runId))
@@ -73,7 +81,13 @@ internal class ScriptedGateway(private val json: Json) {
   }
 
   fun sessionKeyOf(paramsJson: String?): String? =
-    paramsJson?.let { json.parseToJsonElement(it).jsonObject["sessionKey"]?.jsonPrimitive?.content }
+    paramsJson?.let {
+      json
+        .parseToJsonElement(it)
+        .jsonObject["sessionKey"]
+        ?.jsonPrimitive
+        ?.content
+    }
 
   fun callCount(method: String): Int = calls.count { it.method == method }
 }

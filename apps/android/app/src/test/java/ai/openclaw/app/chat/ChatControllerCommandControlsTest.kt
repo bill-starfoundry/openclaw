@@ -81,14 +81,24 @@ class ChatControllerCommandControlsTest {
 
       controller.handleGatewayEvent("health", null)
       advanceUntilIdle()
-      assertEquals(listOf("/model"), controller.commands.value.single().textAliases)
+      assertEquals(
+        listOf("/model"),
+        controller.commands.value
+          .single()
+          .textAliases,
+      )
 
       controller.onDisconnected("gateway closed")
       assertEquals(emptyList<ChatCommandEntry>(), controller.commands.value)
 
       controller.handleGatewayEvent("health", null)
       advanceUntilIdle()
-      assertEquals(listOf("/model"), controller.commands.value.single().textAliases)
+      assertEquals(
+        listOf("/model"),
+        controller.commands.value
+          .single()
+          .textAliases,
+      )
       assertEquals(2, requests.count { it.first == "commands.list" })
     }
 
@@ -141,11 +151,21 @@ class ChatControllerCommandControlsTest {
 
       controller.handleGatewayEvent("health", null)
       advanceUntilIdle()
-      assertEquals(listOf("/main"), controller.commands.value.single().textAliases)
+      assertEquals(
+        listOf("/main"),
+        controller.commands.value
+          .single()
+          .textAliases,
+      )
 
       controller.switchSession("agent:ops:dashboard:parent")
       advanceUntilIdle()
-      assertEquals(listOf("/ops"), controller.commands.value.single().textAliases)
+      assertEquals(
+        listOf("/ops"),
+        controller.commands.value
+          .single()
+          .textAliases,
+      )
 
       val commandRequests = requests.filter { it.first == "commands.list" }
       assertTrue(commandRequests.any { it.second.orEmpty().contains("\"agentId\":\"main\"") })

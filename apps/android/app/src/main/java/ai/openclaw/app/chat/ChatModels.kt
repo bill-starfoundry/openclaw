@@ -57,7 +57,6 @@ data class ChatCommandEntry(
   val acceptsArgs: Boolean = false,
 )
 
-
 /**
  * Snapshot of one chat session, including optional thinking level selected on the gateway.
  */
