@@ -635,6 +635,14 @@ private final class HeldDeleteOutbox: @unchecked Sendable, OpenClawChatCommandOu
         await self.gate.open()
     }
 
+    /// Fired (once) just before the claim forwards, on the flush's task:
+    /// lets tests land a user delete inside the claim's await window.
+    private var onClaim: (@Sendable () async -> Void)?
+
+    func setOnClaim(_ hook: @escaping @Sendable () async -> Void) {
+        self.onClaim = hook
+    }
+
     func enqueueCommand(_ command: OpenClawChatOutboxCommand) async -> Bool {
         await self.base.enqueueCommand(command)
     }
@@ -649,7 +657,11 @@ private final class HeldDeleteOutbox: @unchecked Sendable, OpenClawChatCommandOu
 
     @discardableResult
     func markCommandSending(id: String) async -> Bool {
-        await self.base.markCommandSending(id: id)
+        if let hook = self.onClaim {
+            self.onClaim = nil
+            await hook()
+        }
+        return await self.base.markCommandSending(id: id)
     }
 
     func markCommandQueued(id: String, retryCount: Int, lastError: String?) async {
@@ -714,6 +726,37 @@ extension ChatViewModelOutboxTests {
         let commands = await store.loadCommands()
         #expect(commands.map(\.text) == ["tap tap"])
         #expect(await MainActor.run { queuedStateCount(vm) } == 1)
+    }
+
+    @Test func `deleting during the claim await never sends`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let outbox = HeldDeleteOutbox(base: store)
+        let transport = OutboxTestTransport(healthy: false)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: outbox)
+
+        await MainActor.run { vm.load() }
+        try await sendWhileOffline(vm, text: "deleted inside the claim")
+        let messageID = try #require(await MainActor.run {
+            vm.messages.first { vm.outboxState(for: $0.id) == .queued }?.id
+        })
+
+        // The delete lands inside markCommandSending's await window: after
+        // the pre-claim tombstone check, before the claim resolves. The
+        // post-claim recheck must catch it.
+        outbox.setOnClaim {
+            await MainActor.run { vm.deleteOutboxMessage(messageID) }
+        }
+        await transport.goOnline()
+        try await waitUntil("flush drains without sending") {
+            await MainActor.run { queuedStateCount(vm) == 0 }
+        }
+        #expect(await transport.state.sentIdempotencyKeys.isEmpty)
+        await outbox.releaseHeldDeletes()
+        try await waitUntil("durable row deleted") {
+            await store.loadCommands().isEmpty
+        }
     }
 
     @Test func `deleting a queued bubble mid-flush never sends it`() async throws {

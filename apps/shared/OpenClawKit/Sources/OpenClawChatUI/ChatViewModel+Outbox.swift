@@ -267,6 +267,15 @@ extension OpenClawChatViewModel {
                 self.clearOutboxState(forCommandID: next.id)
                 continue
             }
+            // The claim awaited off the main actor: a user delete may have
+            // landed during that suspension (tombstone set, row deletion in
+            // flight). Recheck before the transport call; the claim may have
+            // beaten the row deletion, so drop the row here too (idempotent).
+            if self.deletedOutboxCommandIDs.remove(next.id) != nil {
+                await outbox.deleteCommand(id: next.id)
+                self.clearOutboxState(forCommandID: next.id)
+                continue
+            }
             self.setOutboxState(.sending, forCommandID: next.id)
             do {
                 let response = try await self.transport.sendMessage(
