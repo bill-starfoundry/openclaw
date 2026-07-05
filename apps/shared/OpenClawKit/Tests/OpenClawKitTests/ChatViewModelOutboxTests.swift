@@ -404,9 +404,12 @@ struct ChatViewModelOutboxTests {
         // delivery on the gateway side stays deduped.
         #expect(bubbleKey == "\(requeued.id):user")
 
-        // Once the transport recovers, the scheduled retry chain drains the
-        // row without any user action.
+        // Once the transport recovers, the next healthy transition drains
+        // the row without any user action. (Repeated throws exhaust the
+        // retry ladder and drop health, so recovery is signaled the same way
+        // a real reconnect is.)
         await transport.state.setSendFails(false)
+        await transport.goOnline()
         try await waitUntil("requeued command drained") {
             await store.loadCommands().isEmpty
         }
@@ -554,6 +557,44 @@ struct ChatViewModelOutboxTests {
         #expect(await MainActor.run { vm.input } == "does not fit")
         #expect(await userTexts(vm).isEmpty)
         #expect(await store.loadCommands().count == OpenClawChatSQLiteTranscriptCache.maxQueuedCommands)
+    }
+
+    @Test func `repeated transport failures climb the backoff ladder then drop health`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let transport = OutboxTestTransport(healthy: false, sendFails: true)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: store)
+
+        await MainActor.run { vm.load() }
+        try await sendWhileOffline(vm, text: "stuck in transit")
+
+        // Gateway reports healthy but every send throws: the flush must walk
+        // the retry ladder (streak 1, 2) and then drop health instead of
+        // retrying at the first rung forever.
+        await transport.goOnline()
+        // healthOK starts false pre-goOnline, so the exhaustion signal is
+        // the streak walking past the ladder (2 rungs in tests) WITH health
+        // down again — not the initial offline state.
+        try await waitUntil("ladder exhausted and health dropped") {
+            await MainActor.run { vm.outboxTransportFailureStreak >= 3 && !vm.healthOK }
+        }
+        // Row survives as queued: transport throws never burn durable
+        // attempts.
+        let commands = await store.loadCommands()
+        #expect(commands.map(\.status) == [.queued])
+        #expect(commands.map(\.retryCount) == [0])
+
+        // A genuine recovery flushes normally and resets the streak.
+        await transport.state.setSendFails(false)
+        await transport.goOnline()
+        try await waitUntil("command sent after recovery") {
+            await transport.state.sentIdempotencyKeys.count == 1
+        }
+        try await waitUntil("row drained") {
+            await store.loadCommands().isEmpty
+        }
+        #expect(await MainActor.run { vm.outboxTransportFailureStreak } == 0)
     }
 
     @Test func `deleting a queued message removes bubble and durable row`() async throws {

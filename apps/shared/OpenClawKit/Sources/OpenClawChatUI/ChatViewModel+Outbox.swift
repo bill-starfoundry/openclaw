@@ -306,23 +306,34 @@ extension OpenClawChatViewModel {
                 await self.spliceSentCommandIntoCachedTranscript(next)
                 await outbox.deleteCommand(id: next.id)
                 self.clearOutboxState(forCommandID: next.id)
+                self.outboxTransportFailureStreak = 0
                 if next.sessionKey == self.sessionKey {
                     flushedCurrentSession = true
                 }
             } catch {
                 // Transport-level failure (unreachable, socket drop): a
                 // connectivity blip, not a gateway verdict on the command.
-                // Keep the row queued without burning a retry attempt; health
-                // gating plus the scheduled retry own the pacing.
+                // Keep the row queued without burning a durable retry
+                // attempt; the in-memory streak paces repeated throws up the
+                // delay ladder instead of hammering the first rung forever.
                 outboxLogger.error("outbox flush send failed \(error.localizedDescription, privacy: .public)")
                 await outbox.markCommandQueued(
                     id: next.id,
                     retryCount: next.retryCount,
                     lastError: error.localizedDescription)
                 self.setOutboxState(.queued, forCommandID: next.id)
+                self.outboxTransportFailureStreak += 1
+                if self.outboxTransportFailureStreak > self.outboxRetryDelaysMs.count {
+                    // Ladder exhausted: the transport is not actually usable
+                    // despite healthOK. Drop health so the reconnect/poll
+                    // machinery owns pacing; the next genuine healthy
+                    // transition re-flushes and the row stays queued.
+                    self.healthOK = false
+                    break
+                }
                 // Strict createdAt ordering: never skip ahead of a command
                 // that is still deliverable.
-                self.scheduleOutboxRetry(afterAttempts: next.retryCount + 1)
+                self.scheduleOutboxRetry(afterAttempts: self.outboxTransportFailureStreak)
                 break
             }
         }

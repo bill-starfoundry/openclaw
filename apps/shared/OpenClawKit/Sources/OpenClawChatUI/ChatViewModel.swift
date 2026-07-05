@@ -81,6 +81,12 @@ public final class OpenClawChatViewModel {
     /// Backoff between failed flush attempts; internal so tests can shorten it.
     @ObservationIgnored
     var outboxRetryDelaysMs: [UInt64] = [2000, 8000]
+    /// Consecutive transport-level flush failures. Paces retries up the
+    /// delay ladder without touching the durable per-command retryCount
+    /// (reserved for gateway verdicts); past the ladder, health drops and
+    /// the reconnect machinery owns pacing.
+    @ObservationIgnored
+    var outboxTransportFailureStreak = 0
     @ObservationIgnored
     nonisolated(unsafe) var outboxRetryTask: Task<Void, Never>?
     /// A command becomes terminally 'failed' after this many send attempts.
