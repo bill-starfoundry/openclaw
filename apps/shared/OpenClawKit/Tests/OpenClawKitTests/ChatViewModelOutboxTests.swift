@@ -791,6 +791,44 @@ extension ChatViewModelOutboxTests {
         })
     }
 
+    @Test func `send before restore adopts durable rows still queues behind them`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        // Persist a row as an earlier process would have.
+        #expect(await store.enqueueCommand(OpenClawChatOutboxCommand(
+            id: UUID().uuidString,
+            sessionKey: "main",
+            text: "queued by the previous launch",
+            thinking: "off",
+            createdAt: Date().timeIntervalSince1970 - 60,
+            status: .queued,
+            retryCount: 0,
+            lastError: nil)))
+
+        // Healthy cold open: fire a send synchronously after load(), before
+        // the async restore has adopted the durable row. The FIFO gate must
+        // still route it behind the backlog.
+        let transport = OutboxTestTransport(healthy: true)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: store)
+        await MainActor.run {
+            vm.load()
+            vm.input = "typed instantly on open"
+            vm.send()
+        }
+
+        try await waitUntil("both turns delivered") {
+            await transport.state.sentMessages.count == 2
+        }
+        #expect(await transport.state.sentMessages == [
+            "queued by the previous launch",
+            "typed instantly on open",
+        ])
+        try await waitUntil("rows drained") {
+            await store.loadCommands().isEmpty
+        }
+    }
+
     @Test func `live send after reconnect queues behind draining outbox rows`() async throws {
         let url = try makeOutboxDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

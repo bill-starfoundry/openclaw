@@ -96,6 +96,12 @@ public final class OpenClawChatViewModel {
     /// switches clear it.
     @ObservationIgnored
     var recentlySentOutboxUserKeys: Set<String> = []
+    /// False until restoreOutboxMessages has adopted durable rows for the
+    /// visible session. Until then the in-memory outbox state is blind to
+    /// rows persisted by an earlier process, so the FIFO send gate must
+    /// assume a backlog exists.
+    @ObservationIgnored
+    var hasRestoredOutboxMessages = false
     @ObservationIgnored
     nonisolated(unsafe) var outboxRetryTask: Task<Void, Never>?
     /// A command becomes terminally 'failed' after this many send attempts.
@@ -1472,14 +1478,19 @@ public final class OpenClawChatViewModel {
         }
 
         // FIFO across the reconnect boundary: while this session still has
-        // queued/sending outbox rows, a live send would race ahead of them.
-        // Route it through the outbox so the queue stays the single ordering
-        // authority; it flushes immediately while healthy, so the turn still
-        // sends right away. Failed rows are parked user decisions and do not
-        // hold new sends hostage. Attachment sends stay live (online-only in
-        // v1) and are documented as outside the ordering guarantee.
+        // queued/sending outbox rows — or restore has not yet adopted rows
+        // persisted by an earlier process, so we must assume a backlog — a
+        // live send would race ahead of them. Route it through the outbox so
+        // the queue stays the single ordering authority; it flushes
+        // immediately while healthy, so the turn still sends right away.
+        // Failed rows are parked user decisions and do not hold new sends
+        // hostage. Attachment sends stay live (online-only in v1) and are
+        // documented as outside the ordering guarantee. Deliberately
+        // session-scoped: other sessions' queued rows are separate
+        // conversations with no ordering contract against this send.
         if self.outbox != nil, self.attachments.isEmpty,
-           self.outboxStatesByMessageID.values.contains(where: { !$0.isFailed })
+           !self.hasRestoredOutboxMessages
+           || self.outboxStatesByMessageID.values.contains(where: { !$0.isFailed })
         {
             self.logDiagnostic(
                 "chat.ui send routed behind outbox sessionKey=\(sessionKey) inputLen=\(trimmed.count)")

@@ -127,6 +127,8 @@ extension OpenClawChatViewModel {
             let commands = await outbox.loadCommands()
             guard self.isCurrentSession(session) else { return }
             self.presentOutboxCommands(commands.filter { $0.sessionKey == session.key })
+            // The FIFO send gate assumes a backlog until this point.
+            self.hasRestoredOutboxMessages = true
             // Relaunching while already healthy never sees an unhealthy ->
             // healthy transition, so kick the flush here as well.
             if self.healthOK, commands.contains(where: { $0.status == .queued }) {
