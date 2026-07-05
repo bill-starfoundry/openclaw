@@ -8,6 +8,7 @@ import "../components/app-sidebar.ts";
 import "../components/app-topbar.ts";
 import "../components/exec-approval.ts";
 import "../components/gateway-url-confirmation.ts";
+import "../components/github-link-hovercard.ts";
 import "../components/login-gate.ts";
 import "../components/terminal/terminal-panel.ts";
 import "../components/tooltip.ts";
@@ -290,8 +291,13 @@ export class OpenClawApp extends LitElement {
     }
     return html`
       <openclaw-tooltip-provider>
-        ${gatewayUrlConfirmation}
-        <openclaw-app-shell .runtime=${runtime} .onboarding=${this.onboarding}></openclaw-app-shell>
+        <openclaw-github-link-hovercard-provider .client=${context.gateway.snapshot.client}>
+          ${gatewayUrlConfirmation}
+          <openclaw-app-shell
+            .runtime=${runtime}
+            .onboarding=${this.onboarding}
+          ></openclaw-app-shell>
+        </openclaw-github-link-hovercard-provider>
       </openclaw-tooltip-provider>
     `;
   }
