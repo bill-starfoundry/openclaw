@@ -80,7 +80,10 @@ public protocol OpenClawChatCommandOutbox: Sendable {
     /// Crash safety: rows stuck in 'sending' from a previous process revert
     /// to 'queued'; the idempotency key makes the re-send safe.
     func recoverInterruptedSends() async
-    func markCommandSending(id: String) async
+    /// Claims a row for sending. Returns false when the row no longer exists
+    /// (deleted mid-flush), so the flush skips it instead of sending stale text.
+    @discardableResult
+    func markCommandSending(id: String) async -> Bool
     func markCommandQueued(id: String, retryCount: Int, lastError: String?) async
     func markCommandFailed(id: String, retryCount: Int, lastError: String?) async
     /// Explicit user retry: reset attempts and refresh `createdAt` so an
@@ -343,12 +346,16 @@ public actor OpenClawChatSQLiteTranscriptCache: OpenClawChatTranscriptCache, Ope
             bindings: [self.gatewayID])
     }
 
-    public func markCommandSending(id: String) async {
-        guard !self.isRetired, let db = await self.handle() else { return }
-        self.execute(
+    @discardableResult
+    public func markCommandSending(id: String) async -> Bool {
+        guard !self.isRetired, let db = await self.handle() else { return false }
+        let updated = self.execute(
             db,
             sql: "UPDATE outbox_commands SET status = 'sending' WHERE gateway_id = ?1 AND client_uuid = ?2",
             bindings: [self.gatewayID, id])
+        // Zero changed rows means the command was deleted while this claim
+        // was queued; the caller must not send it.
+        return updated && sqlite3_changes(db) > 0
     }
 
     public func markCommandQueued(id: String, retryCount: Int, lastError: String?) async {

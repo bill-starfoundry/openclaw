@@ -578,3 +578,106 @@ struct ChatViewModelOutboxTests {
         }
     }
 }
+
+/// Holds `deleteCommand` until released so tests can pin the exact window
+/// where a user delete races an in-flight flush pass (row still visible in
+/// the pass's snapshot).
+private final class HeldDeleteOutbox: @unchecked Sendable, OpenClawChatCommandOutbox {
+    private let base: OpenClawChatSQLiteTranscriptCache
+    private let gate = DeleteGate()
+
+    init(base: OpenClawChatSQLiteTranscriptCache) {
+        self.base = base
+    }
+
+    func releaseHeldDeletes() async {
+        await self.gate.open()
+    }
+
+    func enqueueCommand(_ command: OpenClawChatOutboxCommand) async -> Bool {
+        await self.base.enqueueCommand(command)
+    }
+
+    func loadCommands() async -> [OpenClawChatOutboxCommand] {
+        await self.base.loadCommands()
+    }
+
+    func recoverInterruptedSends() async {
+        await self.base.recoverInterruptedSends()
+    }
+
+    @discardableResult
+    func markCommandSending(id: String) async -> Bool {
+        await self.base.markCommandSending(id: id)
+    }
+
+    func markCommandQueued(id: String, retryCount: Int, lastError: String?) async {
+        await self.base.markCommandQueued(id: id, retryCount: retryCount, lastError: lastError)
+    }
+
+    func markCommandFailed(id: String, retryCount: Int, lastError: String?) async {
+        await self.base.markCommandFailed(id: id, retryCount: retryCount, lastError: lastError)
+    }
+
+    func markCommandRetried(id: String) async {
+        await self.base.markCommandRetried(id: id)
+    }
+
+    func deleteCommand(id: String) async {
+        await self.gate.wait()
+        await self.base.deleteCommand(id: id)
+    }
+}
+
+private actor DeleteGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        self.isOpen = true
+        for waiter in self.waiters { waiter.resume() }
+        self.waiters.removeAll()
+    }
+
+    func wait() async {
+        if self.isOpen { return }
+        await withCheckedContinuation { self.waiters.append($0) }
+    }
+}
+
+extension ChatViewModelOutboxTests {
+    @Test func `deleting a queued bubble mid-flush never sends it`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let outbox = HeldDeleteOutbox(base: store)
+        let transport = OutboxTestTransport(healthy: false)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: outbox)
+
+        await MainActor.run { vm.load() }
+        try await sendWhileOffline(vm, text: "changed my mind mid-flush")
+
+        // User deletes the bubble; the durable row deletion is held, so the
+        // next flush pass still sees the row in its snapshot — the exact
+        // race window the tombstone protects.
+        let messageID = try #require(await MainActor.run {
+            vm.messages.first { vm.outboxState(for: $0.id) == .queued }?.id
+        })
+        await MainActor.run { vm.deleteOutboxMessage(messageID) }
+
+        await transport.goOnline()
+        try await waitUntil("flush pass drains without sending") {
+            await MainActor.run { queuedStateCount(vm) == 0 }
+        }
+        #expect(await transport.state.sentIdempotencyKeys.isEmpty)
+
+        // Once the held deletion completes, the row is gone for good and a
+        // later flush still sends nothing.
+        await outbox.releaseHeldDeletes()
+        try await waitUntil("durable row deleted") {
+            await store.loadCommands().isEmpty
+        }
+        await transport.emit(.health(ok: true))
+        #expect(await transport.state.sentIdempotencyKeys.isEmpty)
+    }
+}

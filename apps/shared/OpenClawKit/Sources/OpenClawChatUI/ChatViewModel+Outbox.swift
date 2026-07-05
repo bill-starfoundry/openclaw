@@ -38,6 +38,10 @@ extension OpenClawChatViewModel {
 
     public func deleteOutboxMessage(_ messageID: UUID) {
         guard let outbox, let commandID = self.outboxCommandIDsByMessageID[messageID] else { return }
+        // Tombstone first, synchronously: an active flush checks this set
+        // right before its transport call, so the deleted command cannot be
+        // sent even if the row deletion below races the flush's claim.
+        self.deletedOutboxCommandIDs.insert(commandID)
         self.outboxCommandIDsByMessageID.removeValue(forKey: messageID)
         self.outboxMessageIDsByCommandID.removeValue(forKey: commandID)
         self.outboxStatesByMessageID.removeValue(forKey: messageID)
@@ -250,7 +254,19 @@ extension OpenClawChatViewModel {
                 $0.status == .queued && !attemptedCommandIDs.contains($0.id)
             }) else { break }
             attemptedCommandIDs.insert(next.id)
-            await outbox.markCommandSending(id: next.id)
+            // Delete-vs-flush race: the user may have removed this bubble
+            // after the pass loaded its snapshot. The tombstone catches the
+            // synchronous UI delete; the claiming UPDATE (zero rows changed
+            // = row already gone) catches the DB-side delete. Either way the
+            // command must not be sent.
+            if self.deletedOutboxCommandIDs.remove(next.id) != nil {
+                self.clearOutboxState(forCommandID: next.id)
+                continue
+            }
+            guard await outbox.markCommandSending(id: next.id) else {
+                self.clearOutboxState(forCommandID: next.id)
+                continue
+            }
             self.setOutboxState(.sending, forCommandID: next.id)
             do {
                 let response = try await self.transport.sendMessage(
@@ -310,6 +326,10 @@ extension OpenClawChatViewModel {
                 break
             }
         }
+        // Every queued row has been walked by now; surviving tombstones refer
+        // to rows already deleted from the store, so drop them to keep the
+        // set bounded.
+        self.deletedOutboxCommandIDs.removeAll()
         if flushedCurrentSession {
             await self.refreshHistoryAfterOutboxFlush()
         }

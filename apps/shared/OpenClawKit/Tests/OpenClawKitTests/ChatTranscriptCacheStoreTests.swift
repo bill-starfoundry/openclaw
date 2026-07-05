@@ -340,6 +340,20 @@ struct ChatCommandOutboxStoreTests {
         #expect(loaded.map(\.sessionKey) == ["main", "main"])
     }
 
+    @Test func `claiming a deleted command returns false`() async throws {
+        let url = try makeDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-a")
+        #expect(await store.enqueueCommand(outboxCommand(id: "c-1", text: "kept")))
+        #expect(await store.markCommandSending(id: "c-1"))
+
+        // Deleted (or never-existing) rows must refuse the claim so a flush
+        // pass working from a stale snapshot cannot send them.
+        await store.deleteCommand(id: "c-1")
+        #expect(await store.markCommandSending(id: "c-1") == false)
+        #expect(await store.markCommandSending(id: "never-existed") == false)
+    }
+
     @Test func `interrupted sending rows revert to queued on recovery`() async throws {
         let url = try makeDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

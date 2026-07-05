@@ -74,6 +74,10 @@ public final class OpenClawChatViewModel {
     var isOutboxFlushRequestedWhileActive = false
     @ObservationIgnored
     var hasRecoveredInterruptedOutboxSends = false
+    /// Tombstones set synchronously on user delete so an active flush pass
+    /// never sends a command whose bubble the user just removed.
+    @ObservationIgnored
+    var deletedOutboxCommandIDs: Set<String> = []
     /// Backoff between failed flush attempts; internal so tests can shorten it.
     @ObservationIgnored
     var outboxRetryDelaysMs: [UInt64] = [2000, 8000]
