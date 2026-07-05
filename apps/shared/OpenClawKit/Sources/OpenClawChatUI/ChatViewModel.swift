@@ -87,6 +87,15 @@ public final class OpenClawChatViewModel {
     /// the reconnect machinery owns pacing.
     @ObservationIgnored
     var outboxTransportFailureStreak = 0
+    /// User idempotency keys of turns just flushed from the outbox whose
+    /// durable outbox row is already deleted but which no history snapshot
+    /// has confirmed yet. Reconciliation must not evict them: the gateway
+    /// history can lag the ack, and eviction here would drop the turn from
+    /// both the screen and the write-through cache. Drained when a snapshot
+    /// contains the key; bounded because every flush drains or session
+    /// switches clear it.
+    @ObservationIgnored
+    var recentlySentOutboxUserKeys: Set<String> = []
     @ObservationIgnored
     nonisolated(unsafe) var outboxRetryTask: Task<Void, Never>?
     /// A command becomes terminally 'failed' after this many send attempts.
@@ -456,13 +465,26 @@ public final class OpenClawChatViewModel {
     {
         guard self.canApplyHistory(request) else { return false }
         let incoming = Self.decodeMessages(payload.messages ?? [])
-        let nextMessages = if preservingOptimisticLocalMessages {
+        var nextMessages = if preservingOptimisticLocalMessages {
             Self.reconcileRunRefreshMessages(
                 previous: self.messages,
                 incoming: incoming,
                 pendingLocalUserEchoIDs: Set(self.pendingLocalUserEchoMessageIDsByRunID.values))
         } else {
             Self.reconcileMessageIDs(previous: self.messages, incoming: incoming)
+        }
+        // Ack-to-history window: turns just flushed from the outbox may not
+        // be in this snapshot yet. Their durable rows are gone, so keep the
+        // visible rows (appended: they are the newest turns) until a
+        // snapshot carries their idempotency key.
+        if !self.recentlySentOutboxUserKeys.isEmpty {
+            self.recentlySentOutboxUserKeys.subtract(incoming.compactMap(\.idempotencyKey))
+            let nextKeys = Set(nextMessages.compactMap(\.idempotencyKey))
+            let preserved = self.messages.filter { message in
+                guard let key = message.idempotencyKey else { return false }
+                return self.recentlySentOutboxUserKeys.contains(key) && !nextKeys.contains(key)
+            }
+            nextMessages.append(contentsOf: preserved)
         }
         self.replaceMessages(nextMessages)
         self.prunePendingLocalUserEchoMessageIDs()
@@ -496,7 +518,11 @@ public final class OpenClawChatViewModel {
         // An empty post-send refresh is incomplete by contract: reconciliation
         // preserves the visible transcript, so preserve its last canonical cache too.
         if !preservingOptimisticLocalMessages || !incoming.isEmpty {
-            self.persistTranscriptToCache(sessionKey: request.session.key, messages: incoming)
+            // Persist the RECONCILED transcript, not raw incoming: a stale
+            // snapshot missing a just-acked turn must not overwrite the
+            // cache after the durable outbox row is already gone — the cache
+            // mirrors what the user sees.
+            self.persistTranscriptToCache(sessionKey: request.session.key, messages: nextMessages)
         }
         // Wholesale history replacement drops local-only queued bubbles;
         // re-adopt or re-append them from the durable outbox.
@@ -1687,6 +1713,9 @@ public final class OpenClawChatViewModel {
         self.pendingLocalUserEchoMessageIDsByRunID.removeAll()
         self.runMessageScopesByRunID.removeAll()
         self.provisionalFinalMessagesByID.removeAll()
+        // Ack-window keys are per-session; keys for the switched-away
+        // session would otherwise linger unbounded.
+        self.recentlySentOutboxUserKeys.removeAll()
         self.sessionId = nil
         self.pendingToolCallsById = [:]
         self.updateStreamingAssistantText(nil)

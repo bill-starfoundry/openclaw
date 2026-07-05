@@ -28,9 +28,14 @@ private actor OutboxTransportState {
     var sendRejects = false
     var historyFails = false
     var heldSendGate: DeleteGate?
+    var staleHistoryRows: [AnyCodable]?
 
     func setHeldSendGate(_ gate: DeleteGate?) {
         self.heldSendGate = gate
+    }
+
+    func setStaleHistoryRows(_ rows: [AnyCodable]?) {
+        self.staleHistoryRows = rows
     }
     var sentIdempotencyKeys: [String] = []
     var sentMessages: [String] = []
@@ -92,6 +97,14 @@ private final class OutboxTestTransport: @unchecked Sendable, OpenClawChatTransp
 
     func requestHistory(sessionKey: String) async throws -> OpenClawChatHistoryPayload {
         guard await self.state.healthy, await !self.state.historyFails else { throw OutboxSendError() }
+        if let stale = await self.state.staleHistoryRows {
+            // Gateway lag: the snapshot predates the just-acked send.
+            return OpenClawChatHistoryPayload(
+                sessionKey: sessionKey,
+                sessionId: "sess-live",
+                messages: stale,
+                thinkingLevel: "off")
+        }
         let keys = await self.state.sentIdempotencyKeys
         let texts = await self.state.sentMessages
         let durableUserRows = zip(keys.indices, keys).map { index, key in
@@ -737,6 +750,45 @@ extension ChatViewModelOutboxTests {
         let commands = await store.loadCommands()
         #expect(commands.map(\.text) == ["tap tap"])
         #expect(await MainActor.run { queuedStateCount(vm) } == 1)
+    }
+
+    @Test func `stale history after the flush ack cannot evict the sent turn from the cache`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let transport = OutboxTestTransport(healthy: false)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: store, transcriptCache: store)
+
+        await MainActor.run { vm.load() }
+        try await sendWhileOffline(vm, text: "must survive stale history")
+
+        // The gateway acks the flush but its history snapshot lags: it still
+        // returns only an older turn without the just-sent idempotency key.
+        let staleRow = AnyCodable([
+            "role": "assistant",
+            "content": [["type": "text", "text": "older turn"]],
+            "timestamp": 500.0,
+        ] as [String: Any])
+        await transport.state.setStaleHistoryRows([staleRow])
+        await transport.goOnline()
+        try await waitUntil("outbox drained") {
+            await store.loadCommands().isEmpty
+        }
+        try await waitUntil("stale refresh applied") {
+            await MainActor.run { vm.messages.contains { message in
+                message.content.contains { $0.text == "older turn" }
+            } }
+        }
+        // Wait out the chained cache writes, then cold-reopen offline: the
+        // sent turn must still pre-paint even though the outbox row is gone
+        // and the last history snapshot did not contain it.
+        if let pendingWrite = await MainActor.run(body: { vm.pendingCacheWriteTask }) {
+            await pendingWrite.value
+        }
+        let cached = await store.loadTranscript(sessionKey: "main")
+        #expect(cached.contains { message in
+            message.content.contains { $0.text == "must survive stale history" }
+        })
     }
 
     @Test func `live send after reconnect queues behind draining outbox rows`() async throws {

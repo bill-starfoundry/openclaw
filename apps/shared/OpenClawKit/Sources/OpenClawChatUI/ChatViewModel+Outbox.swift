@@ -313,6 +313,10 @@ extension OpenClawChatViewModel {
                 // cannot land after the splice and drop the turn.
                 await self.pendingCacheWriteTask?.value
                 await self.spliceSentCommandIntoCachedTranscript(next)
+                // From here the outbox row is the turn's last durable copy;
+                // remember its key so a lagging history snapshot cannot
+                // evict the visible row before confirming it.
+                self.recentlySentOutboxUserKeys.insert(Self.outboxUserIdempotencyKey(next.id))
                 await outbox.deleteCommand(id: next.id)
                 self.clearOutboxState(forCommandID: next.id)
                 self.outboxTransportFailureStreak = 0
