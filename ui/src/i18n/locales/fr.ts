@@ -1218,6 +1218,15 @@ export const fr: TranslationMap = {
       byType: "Par type",
       tokensTitle: "Utilisation quotidienne des jetons",
       costTitle: "Coût quotidien",
+      compressedScaleHint:
+        "L’échelle en racine carrée permet de garder visibles les jours de faible utilisation.",
+    },
+    costWindows: {
+      title: "Périodes de coût",
+      subtitle: "Périodes calendaires se terminant le {date}",
+      selectedRange: "Période sélectionnée",
+      lastDays: "{count} derniers jours",
+      perDay: "/ jour",
     },
     breakdown: {
       output: "Sortie",
@@ -1265,6 +1274,7 @@ export const fr: TranslationMap = {
       cached: "en cache",
       prompt: "prompt",
       calls: "appels",
+      costShare: "{percent} % du coût",
       topModels: "Principaux modèles",
       topProviders: "Principaux providers",
       topTools: "Principaux outils",
@@ -1531,7 +1541,7 @@ export const fr: TranslationMap = {
       badge: "Expiré",
     },
     composer: {
-      placeholder: "Message {name} (Enter to send)",
+      placeholder: "Message {name}",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       attachFile: "Attach file",

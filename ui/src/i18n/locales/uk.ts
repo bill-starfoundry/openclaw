@@ -1215,6 +1215,14 @@ export const uk: TranslationMap = {
       byType: "За типом",
       tokensTitle: "Щоденне використання токенів",
       costTitle: "Щоденна вартість",
+      compressedScaleHint: "Шкала квадратного кореня дає змогу бачити дні з низьким використанням.",
+    },
+    costWindows: {
+      title: "Періоди витрат",
+      subtitle: "Календарні періоди, що закінчуються {date}",
+      selectedRange: "Вибраний період",
+      lastDays: "Останні {count} днів",
+      perDay: "/ день",
     },
     breakdown: {
       output: "Вивід",
@@ -1261,6 +1269,7 @@ export const uk: TranslationMap = {
       cached: "кешовано",
       prompt: "запит",
       calls: "виклики",
+      costShare: "{percent}% витрат",
       topModels: "Найпопулярніші моделі",
       topProviders: "Найпопулярніші провайдери",
       topTools: "Найпопулярніші інструменти",
@@ -1519,7 +1528,7 @@ export const uk: TranslationMap = {
       badge: "Застарів",
     },
     composer: {
-      placeholder: "Message {name} (Enter to send)",
+      placeholder: "Message {name}",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       attachFile: "Attach file",

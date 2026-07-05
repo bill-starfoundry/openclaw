@@ -1196,6 +1196,14 @@ export const th: TranslationMap = {
       byType: "ตามประเภท",
       tokensTitle: "การใช้โทเค็นรายวัน",
       costTitle: "ค่าใช้จ่ายรายวัน",
+      compressedScaleHint: "สเกลรากที่สองช่วยให้วันที่มีการใช้งานต่ำยังคงมองเห็นได้",
+    },
+    costWindows: {
+      title: "ช่วงค่าใช้จ่าย",
+      subtitle: "ช่วงปฏิทินที่สิ้นสุดใน {date}",
+      selectedRange: "ช่วงที่เลือก",
+      lastDays: "{count} วันที่ผ่านมา",
+      perDay: "/ วัน",
     },
     breakdown: {
       output: "เอาต์พุต",
@@ -1241,6 +1249,7 @@ export const th: TranslationMap = {
       cached: "แคชแล้ว",
       prompt: "พรอมป์ต์",
       calls: "การเรียก",
+      costShare: "{percent}% ของค่าใช้จ่าย",
       topModels: "โมเดลยอดนิยม",
       topProviders: "ผู้ให้บริการยอดนิยม",
       topTools: "Tool ยอดนิยม",
@@ -1483,7 +1492,7 @@ export const th: TranslationMap = {
       badge: "หมดอายุ",
     },
     composer: {
-      placeholder: "Message {name} (Enter to send)",
+      placeholder: "Message {name}",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       attachFile: "Attach file",

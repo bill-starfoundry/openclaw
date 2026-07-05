@@ -1207,6 +1207,14 @@ export const vi: TranslationMap = {
       byType: "Theo loại",
       tokensTitle: "Mức sử dụng token hằng ngày",
       costTitle: "Chi phí hằng ngày",
+      compressedScaleHint: "Thang căn bậc hai giúp các ngày có mức sử dụng thấp vẫn hiển thị rõ.",
+    },
+    costWindows: {
+      title: "Khoảng chi phí",
+      subtitle: "Khoảng lịch kết thúc vào {date}",
+      selectedRange: "Khoảng đã chọn",
+      lastDays: "{count} ngày qua",
+      perDay: "/ ngày",
     },
     breakdown: {
       output: "Đầu ra",
@@ -1254,6 +1262,7 @@ export const vi: TranslationMap = {
       cached: "đã lưu đệm",
       prompt: "prompt",
       calls: "lượt gọi",
+      costShare: "{percent}% chi phí",
       topModels: "Mô hình hàng đầu",
       topProviders: "Nhà cung cấp hàng đầu",
       topTools: "Công cụ hàng đầu",
@@ -1507,7 +1516,7 @@ export const vi: TranslationMap = {
       badge: "Đã hết hạn",
     },
     composer: {
-      placeholder: "Message {name} (Enter to send)",
+      placeholder: "Message {name}",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       attachFile: "Attach file",

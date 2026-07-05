@@ -1214,6 +1214,15 @@ export const it: TranslationMap = {
       byType: "Per tipo",
       tokensTitle: "Utilizzo giornaliero dei token",
       costTitle: "Costo giornaliero",
+      compressedScaleHint:
+        "La scala a radice quadrata mantiene visibili i giorni con utilizzo ridotto.",
+    },
+    costWindows: {
+      title: "Intervalli di costo",
+      subtitle: "Intervalli di calendario fino al {date}",
+      selectedRange: "Intervallo selezionato",
+      lastDays: "Ultimi {count} giorni",
+      perDay: "/ giorno",
     },
     breakdown: {
       output: "Output",
@@ -1261,6 +1270,7 @@ export const it: TranslationMap = {
       cached: "in cache",
       prompt: "prompt",
       calls: "chiamate",
+      costShare: "{percent}% del costo",
       topModels: "Modelli principali",
       topProviders: "Provider principali",
       topTools: "Strumenti principali",
@@ -1524,7 +1534,7 @@ export const it: TranslationMap = {
       badge: "Scaduto",
     },
     composer: {
-      placeholder: "Message {name} (Enter to send)",
+      placeholder: "Message {name}",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       attachFile: "Attach file",
