@@ -548,6 +548,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "last-heartbeat",
       "set-heartbeats",
       "system-presence",
+      "system.info",
       "system-event",
     ],
     loadHandlers: loadSystemHandlers,

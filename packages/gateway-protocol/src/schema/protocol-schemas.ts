@@ -300,6 +300,7 @@ import {
   SessionsUsageParamsSchema,
 } from "./sessions.js";
 import { PresenceEntrySchema, SnapshotSchema, StateVersionSchema } from "./snapshot.js";
+import { SystemInfoParamsSchema, SystemInfoResultSchema } from "./system-info.js";
 import {
   TasksCancelParamsSchema,
   TasksCancelResultSchema,
@@ -358,6 +359,8 @@ export const ProtocolSchemas = {
   EnvironmentsListResult: EnvironmentsListResultSchema,
   EnvironmentsStatusParams: EnvironmentsStatusParamsSchema,
   EnvironmentsStatusResult: EnvironmentsStatusResultSchema,
+  SystemInfoParams: SystemInfoParamsSchema,
+  SystemInfoResult: SystemInfoResultSchema,
   AgentEvent: AgentEventSchema,
   MessageActionParams: MessageActionParamsSchema,
   SendParams: SendParamsSchema,
