@@ -406,14 +406,19 @@ public struct OpenClawChatView: View {
                         }
                     }
                 }
-                Button(role: .destructive) {
-                    self.viewModel.deleteOutboxMessage(msg.id)
-                } label: {
-                    Label {
-                        Text("Delete")
-                            .font(OpenClawChatTypography.body)
-                    } icon: {
-                        Image(systemName: "trash")
+                // No Delete while `.sending`: the transport call is already
+                // in flight and cannot be prevented, so removing the bubble
+                // would hide a message that may still reach the gateway.
+                if outboxState != .sending {
+                    Button(role: .destructive) {
+                        self.viewModel.deleteOutboxMessage(msg.id)
+                    } label: {
+                        Label {
+                            Text("Delete")
+                                .font(OpenClawChatTypography.body)
+                        } icon: {
+                            Image(systemName: "trash")
+                        }
                     }
                 }
             }
