@@ -95,6 +95,7 @@ import {
   type CompactionNoticePhase,
 } from "./compaction-notice.js";
 import { resolveFollowupDeliveryPayloads } from "./followup-delivery.js";
+import { refreshActiveGoalContext } from "./inbound-meta.js";
 import { resolveOriginMessageProvider } from "./origin-routing.js";
 import {
   completeFollowupRunLifecycle,
@@ -693,6 +694,15 @@ export function createFollowupRunner(params: {
           }
         }
       }
+      // Admission already loads the latest entry under the lifecycle fence.
+      const goalContextSessionEntry = admission.sessionEntry ?? activeSessionEntry;
+      const currentInboundContext =
+        opts?.isHeartbeat === true
+          ? effectiveQueued.currentInboundContext
+          : refreshActiveGoalContext(
+              effectiveQueued.currentInboundContext,
+              goalContextSessionEntry,
+            );
       const runId = crypto.randomUUID();
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
@@ -1149,7 +1159,7 @@ export function createFollowupRunner(params: {
                     storePath,
                     currentInboundEventKind: queued.currentInboundEventKind,
                     currentInboundAudio: queued.currentInboundAudio,
-                    currentInboundContext: queued.currentInboundContext,
+                    currentInboundContext,
                     inputProvenance: run.inputProvenance,
                     provider: cliExecutionProvider,
                     model,
@@ -1265,7 +1275,7 @@ export function createFollowupRunner(params: {
                 userTurnTranscriptRecorder,
                 currentInboundEventKind: queued.currentInboundEventKind,
                 currentInboundAudio: queued.currentInboundAudio,
-                currentInboundContext: queued.currentInboundContext,
+                currentInboundContext,
                 extraSystemPrompt: run.extraSystemPrompt,
                 silentReplyPromptMode: run.silentReplyPromptMode,
                 sourceReplyDeliveryMode: run.sourceReplyDeliveryMode,

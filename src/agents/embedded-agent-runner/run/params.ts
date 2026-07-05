@@ -51,6 +51,8 @@ export type CurrentInboundPromptContext = {
   text: string;
   resumableText?: string;
   promptJoiner?: "\n\n" | "\n" | " ";
+  /** Generated goal blocks owned by inbound-context assembly, never user text. */
+  injectedGoalContexts?: string[];
 };
 
 export type RunEmbeddedAgentParams = {
