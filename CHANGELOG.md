@@ -8,7 +8,14 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Message delivery status:** report failed and partially failed best-effort channel delivery instead of returning a success-shaped message-tool result. (#99928) Thanks @masatohoshino.
+- **WhatsApp credential recovery:** restore malformed primary auth state from a valid backup during startup. (#99070) Thanks @LeonidasLux.
+- **WhatsApp quoted replies:** preserve bot-authored outbound quote metadata so replies to those messages keep their reply bubble in WhatsApp Desktop. (#94879) Thanks @Bartok9.
+- **WhatsApp reconnect catch-up:** admit recently missed Baileys `append` messages during a bounded reconnect window while preserving startup stale-history guards. (#80642) Thanks @VishalJ99.
 - **WhatsApp restart recovery:** stop automatic restart loops after logged-out or connection-replaced disconnects until the account reconnects. (#78511) Thanks @openperf.
+- **Local Gateway CLI auth:** keep loopback CLI token/password calls off durable device scopes so read probes cannot block later write/admin commands behind a stale pairing baseline. (#95997) Thanks @vincentkoc.
+- **Plugin module identity:** keep OpenClaw package chunks on Node's native module graph when jiti transforms plugin entries, preventing duplicate evaluation and class identity drift. (#88384) Thanks @vincentkoc.
+- **Shell completion repair:** generate core-only caches during doctor and update repair while preserving full plugin command completion for onboarding and explicit user rebuilds. (#76235)
 - **iMessage group warnings:** suppress the false drop-all startup warning when an effective group sender allowlist can admit groups, and point true empty-allowlist configurations at the correct remedy. (#100046)
 - **Control UI mobile login:** keep Gateway recovery guidance visible after connection failures, make the disconnected gate scroll safely on constrained screens, and improve mobile keyboard and tap-target behavior. (#100208)
 
@@ -28,6 +35,8 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- **Control UI context usage:** show context-window progress, latest-run input/output tokens, and the active model when the chat context ring is opened.
+- **Apple Watch voice turns:** dictate a message from the Watch chat and hear the new OpenClaw reply spoken on the Watch, with explicit silent-message and stop-speaking controls. (#100224)
 - **Conversational onboarding:** add a real agent-loop Crestodian setup flow across the CLI, Gateway, web install, and macOS app, with typed operations, exact approval binding, masked credential prompts, isolated session transcripts, and safe handoff to the normal agent.
 - **Generated session titles:** name new Control UI sessions from their first message, and add default/per-agent `utilityModel` routing for lower-cost session, topic, and thread title generation. Thanks @Juliangsm and @zhangguiping-xydt.
 - **ClawRouter routing and quotas:** add the bundled ClawRouter provider plugin with credential-scoped dynamic model discovery, OpenAI-compatible and native Anthropic/Gemini transports, and managed budget reporting across OpenClaw usage surfaces. (#99658)
