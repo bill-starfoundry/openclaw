@@ -1445,6 +1445,22 @@ public final class OpenClawChatViewModel {
             }
         }
 
+        // FIFO across the reconnect boundary: while this session still has
+        // queued/sending outbox rows, a live send would race ahead of them.
+        // Route it through the outbox so the queue stays the single ordering
+        // authority; it flushes immediately while healthy, so the turn still
+        // sends right away. Failed rows are parked user decisions and do not
+        // hold new sends hostage. Attachment sends stay live (online-only in
+        // v1) and are documented as outside the ordering guarantee.
+        if self.outbox != nil, self.attachments.isEmpty,
+           self.outboxStatesByMessageID.values.contains(where: { !$0.isFailed })
+        {
+            self.logDiagnostic(
+                "chat.ui send routed behind outbox sessionKey=\(sessionKey) inputLen=\(trimmed.count)")
+            await self.enqueueOutboxCommand(text: trimmed, session: sessionSnapshot)
+            return
+        }
+
         self.errorText = nil
         let runId = UUID().uuidString
         let messageText = trimmed.isEmpty && !self.attachments.isEmpty ? "See attached." : trimmed

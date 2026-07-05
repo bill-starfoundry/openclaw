@@ -27,6 +27,11 @@ private actor OutboxTransportState {
     var sendFails: Bool
     var sendRejects = false
     var historyFails = false
+    var heldSendGate: DeleteGate?
+
+    func setHeldSendGate(_ gate: DeleteGate?) {
+        self.heldSendGate = gate
+    }
     var sentIdempotencyKeys: [String] = []
     var sentMessages: [String] = []
     var sentSessionKeys: [String] = []
@@ -111,6 +116,12 @@ private final class OutboxTestTransport: @unchecked Sendable, OpenClawChatTransp
         idempotencyKey: String,
         attachments _: [OpenClawChatAttachmentPayload]) async throws -> OpenClawChatSendResponse
     {
+        if let gate = await self.state.heldSendGate {
+            // One-shot: only the first send is held so tests can pin the
+            // window where the flush is mid-drain.
+            await self.state.setHeldSendGate(nil)
+            await gate.wait()
+        }
         if await self.state.sendFails {
             throw OutboxSendError()
         }
@@ -726,6 +737,44 @@ extension ChatViewModelOutboxTests {
         let commands = await store.loadCommands()
         #expect(commands.map(\.text) == ["tap tap"])
         #expect(await MainActor.run { queuedStateCount(vm) } == 1)
+    }
+
+    @Test func `live send after reconnect queues behind draining outbox rows`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let transport = OutboxTestTransport(healthy: false)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: store)
+
+        await MainActor.run { vm.load() }
+        try await sendWhileOffline(vm, text: "first, written offline")
+
+        // Reconnect with the first send held mid-flight, then send live text
+        // immediately: it must fall in line behind the draining row, not
+        // race ahead of it.
+        let gate = DeleteGate()
+        await transport.state.setHeldSendGate(gate)
+        await transport.goOnline()
+        try await waitUntil("first row claimed for sending") {
+            await store.loadCommands().map(\.status) == [.sending]
+        }
+        await MainActor.run {
+            vm.input = "second, right after reconnect"
+            vm.send()
+        }
+        try await waitUntil("second row queued behind the first") {
+            await store.loadCommands().map(\.text).contains("second, right after reconnect")
+        }
+        #expect(await transport.state.sentMessages.isEmpty)
+
+        await gate.open()
+        try await waitUntil("both rows drained in order") {
+            await store.loadCommands().isEmpty
+        }
+        #expect(await transport.state.sentMessages == [
+            "first, written offline",
+            "second, right after reconnect",
+        ])
     }
 
     @Test func `deleting during the claim await never sends`() async throws {
