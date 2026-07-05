@@ -11,6 +11,7 @@ Docs: https://docs.openclaw.ai
 - **Control UI message context:** reveal per-message token, context, and model details from the timestamp on hover or activation instead of showing a separate Context button.
 - **Control UI session titles:** reveal truncated recent-session names with a reduced-motion-safe hover animation.
 - **Control UI sidebar navigation:** show a small customizable pinned destination set, keep the remaining pages under More, move Settings to the footer, and persist sidebar customization in the browser. (#100296)
+- **Control UI sidebar layout:** remove the brand header, separate pinned and recent chats, retain all pins alongside nine recent chats, and consolidate utility actions into a compact footer. (#100386) Thanks @steipete.
 - **Control UI sidebar usage:** remove the provider usage quota row from the expanded sidebar while keeping usage details available in the chat composer and Usage page. Thanks @shakkernerd.
 
 ### Fixes
