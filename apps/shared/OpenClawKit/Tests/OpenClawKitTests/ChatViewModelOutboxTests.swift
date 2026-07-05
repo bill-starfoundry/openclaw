@@ -646,6 +646,35 @@ private actor DeleteGate {
 }
 
 extension ChatViewModelOutboxTests {
+    @Test func `double submit during the offline health probe enqueues once`() async throws {
+        let url = try makeOutboxDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = OpenClawChatSQLiteTranscriptCache(databaseURL: url, gatewayID: "gw-test")
+        let transport = OutboxTestTransport(healthy: false)
+        let vm = await makeOutboxViewModel(transport: transport, outbox: store)
+
+        await MainActor.run { vm.load() }
+        // Two rapid submits of the same draft: the second lands while the
+        // first is still awaiting the forced health probe. The isSending
+        // guard must swallow it instead of enqueueing a duplicate row.
+        await MainActor.run {
+            vm.input = "tap tap"
+            vm.send()
+            vm.send()
+        }
+        try await waitUntil("queued bubble for tap tap") {
+            await MainActor.run {
+                vm.messages.contains { message in
+                    message.role == "user" && message.content.contains { $0.text == "tap tap" }
+                }
+            }
+        }
+
+        let commands = await store.loadCommands()
+        #expect(commands.map(\.text) == ["tap tap"])
+        #expect(await MainActor.run { queuedStateCount(vm) } == 1)
+    }
+
     @Test func `deleting a queued bubble mid-flush never sends it`() async throws {
         let url = try makeOutboxDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

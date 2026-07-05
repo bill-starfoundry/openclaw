@@ -1419,6 +1419,13 @@ public final class OpenClawChatViewModel {
         let sessionSnapshot = self.currentSessionSnapshot()
         let sessionKey = sessionSnapshot.key
 
+        // Raised before the health poll so the entry guard covers the whole
+        // async path: a second submit during `pollHealthIfNeeded` would
+        // otherwise re-capture the same draft and enqueue a duplicate
+        // outbox row.
+        self.isSending = true
+        defer { self.isSending = false }
+
         if !self.healthOK {
             await self.pollHealthIfNeeded(force: true, sessionSnapshot: sessionSnapshot)
             guard self.isCurrentSession(sessionSnapshot) else { return }
@@ -1432,9 +1439,7 @@ public final class OpenClawChatViewModel {
             }
         }
 
-        self.isSending = true
         self.errorText = nil
-        defer { self.isSending = false }
         let runId = UUID().uuidString
         let messageText = trimmed.isEmpty && !self.attachments.isEmpty ? "See attached." : trimmed
         let thinkingLevel = self.thinkingLevel
