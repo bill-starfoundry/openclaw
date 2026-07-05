@@ -6,7 +6,40 @@ enum GatewayOnboardingReset {
     static func prepareForBootstrapPairing(
         appModel: NodeAppModel,
         instanceId: String,
+        defaults: UserDefaults = .standard) async
+    {
+        await appModel.purgeChatTranscriptCache()
+        self.clearPairingState(appModel: appModel, instanceId: instanceId, defaults: defaults)
+    }
+
+    @MainActor
+    static func reset(
+        appModel: NodeAppModel,
+        instanceId: String,
+        defaults: UserDefaults = .standard) async
+    {
+        await self.prepareForBootstrapPairing(appModel: appModel, instanceId: instanceId, defaults: defaults)
+        self.clearOnboardingState(defaults: defaults)
+    }
+
+    /// The debug launch flag must finish before startup reads pairing defaults.
+    /// No cache actor exists yet, so the startup-only file purge is synchronous.
+    @MainActor
+    static func resetBeforeStartup(
+        appModel: NodeAppModel,
+        instanceId: String,
         defaults: UserDefaults = .standard)
+    {
+        appModel.purgeChatTranscriptCacheBeforeStartup()
+        self.clearPairingState(appModel: appModel, instanceId: instanceId, defaults: defaults)
+        self.clearOnboardingState(defaults: defaults)
+    }
+
+    @MainActor
+    private static func clearPairingState(
+        appModel: NodeAppModel,
+        instanceId: String,
+        defaults: UserDefaults)
     {
         appModel.disconnectGateway()
 
@@ -27,13 +60,7 @@ enum GatewayOnboardingReset {
         defaults.set(false, forKey: "gateway.autoconnect")
     }
 
-    @MainActor
-    static func reset(
-        appModel: NodeAppModel,
-        instanceId: String,
-        defaults: UserDefaults = .standard)
-    {
-        self.prepareForBootstrapPairing(appModel: appModel, instanceId: instanceId, defaults: defaults)
+    private static func clearOnboardingState(defaults: UserDefaults) {
         OnboardingStateStore.reset(defaults: defaults)
 
         defaults.set(false, forKey: "gateway.onboardingComplete")

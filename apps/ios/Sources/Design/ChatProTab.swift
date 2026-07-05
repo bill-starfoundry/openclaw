@@ -44,6 +44,9 @@ struct ChatProTab: View {
         .onChange(of: self.appModel.chatSessionKey) { _, _ in
             self.syncChatViewModel()
         }
+        .onChange(of: self.appModel.chatViewModelIdentityID) { _, _ in
+            self.syncChatViewModel()
+        }
         .onChange(of: self.appModel.isAppleReviewDemoModeEnabled) { _, _ in
             self.syncChatViewModel()
             self.viewModel?.refresh()

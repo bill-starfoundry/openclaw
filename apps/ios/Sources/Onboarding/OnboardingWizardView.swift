@@ -191,7 +191,7 @@ struct OnboardingWizardView: View {
                 NavigationStack {
                     QRScannerView(
                         onGatewayLink: { link in
-                            self.handleScannedLink(link)
+                            Task { await self.handleScannedLink(link) }
                         },
                         onSetupCode: { code in
                             self.handleScannedSetupCode(code)
@@ -241,7 +241,7 @@ struct OnboardingWizardView: View {
                         }
                         if let message = self.detectQRCode(from: data) {
                             if let link = GatewayConnectDeepLink.fromSetupInput(message) {
-                                self.handleScannedLink(link)
+                                await self.handleScannedLink(link)
                                 return
                             }
                             if AppleReviewDemoMode.isSetupCode(message) {
@@ -809,7 +809,7 @@ extension OnboardingWizardView {
         }
 
         self.connectingGatewayID = "setup-code"
-        self.applyGatewayLink(link)
+        await self.applyGatewayLink(link)
         self.setupCode = ""
         self.setupCodeStatus = "Setup code applied. Connecting..."
         self.connectMessage = "Connecting via setup code..."
@@ -818,24 +818,24 @@ extension OnboardingWizardView {
         await self.connectManual()
     }
 
-    private func handleScannedLink(_ link: GatewayConnectDeepLink) {
-        self.applyGatewayLink(link)
+    private func handleScannedLink(_ link: GatewayConnectDeepLink) async {
+        await self.applyGatewayLink(link)
         self.setupCodeStatus = nil
         self.showQRScanner = false
         self.connectMessage = "Connecting via QR code..."
         self.statusLine = "QR loaded. Connecting to \(link.host):\(link.port)..."
         self.step = .connect
-        Task { await self.connectManual() }
+        await self.connectManual()
     }
 
-    private func applyGatewayLink(_ link: GatewayConnectDeepLink) {
+    private func applyGatewayLink(_ link: GatewayConnectDeepLink) async {
         self.manualHost = link.host
         self.manualPort = link.port
         self.manualPortText = String(link.port)
         self.manualTLS = link.tls
         let setupAuth = GatewayConnectionController.ManualAuthOverride.setupAuth(from: link)
         if setupAuth.hasBootstrapToken {
-            GatewayOnboardingReset.prepareForBootstrapPairing(
+            await GatewayOnboardingReset.prepareForBootstrapPairing(
                 appModel: self.appModel,
                 instanceId: GatewaySettingsStore.currentInstanceID())
         }
@@ -1172,7 +1172,7 @@ extension OnboardingWizardView {
 
     private func handleGatewayProblemPrimaryAction(_ problem: GatewayConnectionProblem) async {
         if problem.suggestsOnboardingReset {
-            GatewayOnboardingReset.reset(appModel: self.appModel, instanceId: self.instanceId)
+            await GatewayOnboardingReset.reset(appModel: self.appModel, instanceId: self.instanceId)
             self.gatewayToken = ""
             self.gatewayPassword = ""
             self.connectingGatewayID = nil

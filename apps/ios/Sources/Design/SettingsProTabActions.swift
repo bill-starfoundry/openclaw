@@ -211,7 +211,7 @@ extension SettingsProTab {
 
     func applySetupCodeAndConnect() async {
         self.setupStatusText = nil
-        guard self.applySetupCode() else { return }
+        guard await self.applySetupCode() else { return }
         let host = self.manualGatewayHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard self.resolvedManualPort(host: host) != nil else {
             self.setupStatusText = "Failed: invalid port"
@@ -232,7 +232,7 @@ extension SettingsProTab {
     }
 
     @discardableResult
-    func applySetupCode() -> Bool {
+    func applySetupCode() async -> Bool {
         let raw = self.setupCode.trimmingCharacters(in: .whitespacesAndNewlines)
         let stagedLink = self.stagedGatewaySetupLink
         guard !raw.isEmpty || stagedLink != nil else {
@@ -253,11 +253,11 @@ extension SettingsProTab {
             return false
         }
         self.stagedGatewaySetupLink = nil
-        self.applyGatewayLink(link)
+        await self.applyGatewayLink(link)
         return true
     }
 
-    func applyGatewayLink(_ link: GatewayConnectDeepLink) {
+    func applyGatewayLink(_ link: GatewayConnectDeepLink) async {
         self.manualGatewayHost = link.host
         self.manualGatewayPort = link.port
         self.manualGatewayPortText = String(link.port)
@@ -265,7 +265,9 @@ extension SettingsProTab {
         let instanceId = GatewaySettingsStore.currentInstanceID()
         let setupAuth = GatewayConnectionController.ManualAuthOverride.setupAuth(from: link)
         if setupAuth.hasBootstrapToken {
-            GatewayOnboardingReset.prepareForBootstrapPairing(appModel: self.appModel, instanceId: instanceId)
+            await GatewayOnboardingReset.prepareForBootstrapPairing(
+                appModel: self.appModel,
+                instanceId: instanceId)
         }
         if !instanceId.isEmpty {
             GatewaySettingsStore.saveGatewayBootstrapToken(setupAuth.bootstrapToken, instanceId: instanceId)
@@ -295,9 +297,11 @@ extension SettingsProTab {
     func handleScannedGatewayLink(_ link: GatewayConnectDeepLink) {
         self.showQRScanner = false
         self.setupCode = ""
-        self.applyGatewayLink(link)
-        self.setupStatusText = "QR loaded. Connecting to \(link.host):\(link.port)..."
-        Task { await self.connectAfterScannedGatewayLink() }
+        Task {
+            await self.applyGatewayLink(link)
+            self.setupStatusText = "QR loaded. Connecting to \(link.host):\(link.port)..."
+            await self.connectAfterScannedGatewayLink()
+        }
     }
 
     func handleScannedSetupCode(_ code: String) {
@@ -355,7 +359,7 @@ extension SettingsProTab {
         return true
     }
 
-    func resetOnboarding() {
+    func resetOnboarding() async {
         self.connectingGatewayID = nil
         self.setupStatusText = nil
         self.setupCode = ""
@@ -364,7 +368,7 @@ extension SettingsProTab {
         defer { self.suppressCredentialPersist = false }
         self.gatewayToken = ""
         self.gatewayPassword = ""
-        GatewayOnboardingReset.reset(appModel: self.appModel, instanceId: self.instanceId)
+        await GatewayOnboardingReset.reset(appModel: self.appModel, instanceId: self.instanceId)
         self.onboardingComplete = false
         self.hasConnectedOnce = false
         self.manualGatewayEnabled = false

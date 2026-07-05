@@ -18,6 +18,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- **iOS offline chat:** pre-paint recent sessions and canonical transcripts from a protected, bounded per-gateway cache, keep sending disabled offline, and purge cached conversation text when pairing is reset. (#100194)
 - **Conversational onboarding:** add a real agent-loop Crestodian setup flow across the CLI, Gateway, web install, and macOS app, with typed operations, exact approval binding, masked credential prompts, isolated session transcripts, and safe handoff to the normal agent.
 - **Generated session titles:** name new Control UI sessions from their first message, and add default/per-agent `utilityModel` routing for lower-cost session, topic, and thread title generation. Thanks @Juliangsm and @zhangguiping-xydt.
 - **ClawRouter routing and quotas:** add the bundled ClawRouter provider plugin with credential-scoped dynamic model discovery, OpenAI-compatible and native Anthropic/Gemini transports, and managed budget reporting across OpenClaw usage surfaces. (#99658)
