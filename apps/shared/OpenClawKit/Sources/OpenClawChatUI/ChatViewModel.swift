@@ -37,7 +37,8 @@ public final class OpenClawChatViewModel {
     public private(set) var isAborting = false
     public var errorText: String?
     public var attachments: [OpenClawPendingAttachment] = []
-    public private(set) var healthOK: Bool = false
+    /// Setter is module-internal for the health/outbox extension only.
+    public internal(set) var healthOK: Bool = false
     public private(set) var pendingRunCount: Int = 0
 
     public private(set) var sessionKey: String
@@ -56,8 +57,30 @@ public final class OpenClawChatViewModel {
     /// one), a slow cache read must never paint stale rows over it.
     var hasAppliedLiveHistory = false
     var hasAppliedLiveSessions = false
-    private let transport: any OpenClawChatTransport
+    /// Internal for the outbox extension's flush path only.
+    let transport: any OpenClawChatTransport
     let transcriptCache: (any OpenClawChatTranscriptCache)?
+    let outbox: (any OpenClawChatCommandOutbox)?
+    /// Per-message outbox display state; rows without an entry are normal
+    /// transcript rows. Observable so bubbles update when flush progresses.
+    public internal(set) var outboxStatesByMessageID: [UUID: OpenClawChatOutboxMessageState] = [:]
+    @ObservationIgnored
+    var outboxCommandIDsByMessageID: [UUID: String] = [:]
+    @ObservationIgnored
+    var outboxMessageIDsByCommandID: [String: UUID] = [:]
+    @ObservationIgnored
+    var isFlushingOutbox = false
+    @ObservationIgnored
+    var isOutboxFlushRequestedWhileActive = false
+    @ObservationIgnored
+    var hasRecoveredInterruptedOutboxSends = false
+    /// Backoff between failed flush attempts; internal so tests can shorten it.
+    @ObservationIgnored
+    var outboxRetryDelaysMs: [UInt64] = [2000, 8000]
+    @ObservationIgnored
+    nonisolated(unsafe) var outboxRetryTask: Task<Void, Never>?
+    /// A command becomes terminally 'failed' after this many send attempts.
+    nonisolated static let maxOutboxSendAttempts = 3
     @ObservationIgnored
     var pendingCacheWriteTask: Task<Void, Never>?
     private var sessionDefaults: OpenClawChatSessionsDefaults?
@@ -170,12 +193,13 @@ public final class OpenClawChatViewModel {
         }
     }
 
-    private var lastHealthPollAt: Date?
+    var lastHealthPollAt: Date?
 
     public init(
         sessionKey: String,
         transport: any OpenClawChatTransport,
         transcriptCache: (any OpenClawChatTranscriptCache)? = nil,
+        outbox: (any OpenClawChatCommandOutbox)? = nil,
         initialThinkingLevel: String? = nil,
         onSessionChanged: (@MainActor (String) -> Void)? = nil,
         onThinkingLevelChanged: (@MainActor @Sendable (String) -> Void)? = nil,
@@ -184,6 +208,7 @@ public final class OpenClawChatViewModel {
         self.sessionKey = sessionKey
         self.transport = transport
         self.transcriptCache = transcriptCache
+        self.outbox = outbox
         let normalizedThinkingLevel = Self.normalizedThinkingLevel(initialThinkingLevel)
         let initialResolvedThinkingLevel = normalizedThinkingLevel ?? "off"
         self.thinkingLevel = initialResolvedThinkingLevel
@@ -210,6 +235,7 @@ public final class OpenClawChatViewModel {
     deinit {
         self.eventTask?.cancel()
         self.bootstrapTask?.cancel()
+        self.outboxRetryTask?.cancel()
         for (_, task) in self.pendingRunTimeoutTasks {
             task.cancel()
         }
@@ -291,53 +317,10 @@ public final class OpenClawChatViewModel {
         self.errorText = nil
     }
 
-    public var sessionChoices: [OpenClawChatSessionEntry] {
-        let now = Date().timeIntervalSince1970 * 1000
-        let cutoff = now - (24 * 60 * 60 * 1000)
-        let sorted = self.sessions.sorted { ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0) }
-        let mainSessionKey = self.resolvedMainSessionKey
-
-        var result: [OpenClawChatSessionEntry] = []
-        var included = Set<String>()
-
-        // Always show the resolved main session first, even if it hasn't been updated recently.
-        if let main = sorted.first(where: { $0.key == mainSessionKey }) {
-            result.append(main)
-            included.insert(main.key)
-        } else {
-            result.append(self.placeholderSession(key: mainSessionKey))
-            included.insert(mainSessionKey)
-        }
-
-        for entry in sorted {
-            guard !included.contains(entry.key) else { continue }
-            guard entry.key == self.sessionKey || !Self.isHiddenInternalSession(entry.key) else { continue }
-            guard (entry.updatedAt ?? 0) >= cutoff else { continue }
-            result.append(entry)
-            included.insert(entry.key)
-        }
-
-        if !included.contains(self.sessionKey) {
-            if let current = sorted.first(where: { $0.key == self.sessionKey }) {
-                result.append(current)
-            } else {
-                result.append(self.placeholderSession(key: self.sessionKey))
-            }
-        }
-
-        return result
-    }
-
     var resolvedMainSessionKey: String {
         let trimmed = self.sessionDefaults?.mainSessionKey?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false ? trimmed : nil) ?? "main"
-    }
-
-    private static func isHiddenInternalSession(_ key: String) -> Bool {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        return trimmed == "onboarding" || trimmed.hasSuffix(":onboarding")
     }
 
     public var showsModelPicker: Bool {
@@ -505,6 +488,9 @@ public final class OpenClawChatViewModel {
         if !preservingOptimisticLocalMessages || !incoming.isEmpty {
             self.persistTranscriptToCache(sessionKey: request.session.key, messages: incoming)
         }
+        // Wholesale history replacement drops local-only queued bubbles;
+        // re-adopt or re-append them from the durable outbox.
+        self.restoreOutboxMessages(session: request.session)
         return true
     }
 
@@ -525,6 +511,7 @@ public final class OpenClawChatViewModel {
         self.updateStreamingAssistantText(nil)
         self.sessionId = nil
         self.paintFromCacheIfNeeded(session: context.session)
+        self.restoreOutboxMessages(session: context.session)
         self.bootstrapTask = Task { [weak self] in
             guard let self else { return }
             await self.bootstrap(context: context)
@@ -1431,6 +1418,14 @@ public final class OpenClawChatViewModel {
         if !self.healthOK {
             await self.pollHealthIfNeeded(force: true, sessionSnapshot: sessionSnapshot)
             guard self.isCurrentSession(sessionSnapshot) else { return }
+            // Offline capture: queue text-only sends durably instead of
+            // failing. Attachments stay on the live path (text only in v1).
+            if !self.healthOK, self.outbox != nil, self.attachments.isEmpty {
+                self.logDiagnostic(
+                    "chat.ui send queued offline sessionKey=\(sessionKey) inputLen=\(trimmed.count)")
+                await self.enqueueOutboxCommand(text: trimmed, session: sessionSnapshot)
+                return
+            }
         }
 
         self.isSending = true
@@ -1566,6 +1561,32 @@ public final class OpenClawChatViewModel {
             }
         } catch {
             guard self.isCurrentSession(sessionSnapshot) else { return }
+            // Stale-healthy disconnects surface here instead of at the send
+            // gate. Requeue text-only sends durably (same runId = same
+            // idempotency identity, safe even if the send actually landed)
+            // and keep the optimistic bubble as the queued row.
+            if encodedAttachments.isEmpty {
+                self.runMessageScopesByRunID.removeValue(forKey: runId)
+                self.clearPendingRun(runId)
+                let requeued = await self.requeueFailedLiveSend(
+                    runId: runId,
+                    text: messageText,
+                    thinking: thinkingLevel,
+                    messageID: userMessageID,
+                    session: sessionSnapshot)
+                if requeued {
+                    self.logDiagnostic(
+                        "chat.ui send requeued offline sessionKey=\(sessionKey) "
+                            + "localRunId=\(runId) error=\(error.localizedDescription)")
+                    return
+                }
+                guard self.isCurrentSession(sessionSnapshot) else { return }
+                // Refused requeue (queue full / broken store): restore the
+                // draft so the text is not lost with the failed bubble.
+                if self.input.isEmpty {
+                    self.input = messageText
+                }
+            }
             self.removePendingLocalUserEcho(for: runId)
             self.runMessageScopesByRunID.removeValue(forKey: runId)
             self.clearPendingRun(runId)
@@ -1939,7 +1960,7 @@ public final class OpenClawChatViewModel {
         return result
     }
 
-    private func placeholderSession(key: String) -> OpenClawChatSessionEntry {
+    func placeholderSession(key: String) -> OpenClawChatSessionEntry {
         OpenClawChatSessionEntry(
             key: key,
             kind: nil,
@@ -2166,7 +2187,7 @@ public final class OpenClawChatViewModel {
     private func handleTransportEvent(_ evt: OpenClawChatTransportEvent) {
         switch evt {
         case let .health(ok):
-            self.healthOK = ok
+            self.applyTransportHealth(ok)
         case .tick:
             let context = self.currentSessionSnapshot()
             Task { await self.pollHealthIfNeeded(force: false, sessionSnapshot: context) }
@@ -2678,6 +2699,12 @@ public final class OpenClawChatViewModel {
         }
     }
 
+    /// Narrow seam for the outbox extension: pull durable history after a
+    /// flush so acked commands reconcile with their queued bubbles.
+    func refreshHistoryAfterOutboxFlush() async {
+        await self.refreshHistoryAfterRun()
+    }
+
     @discardableResult
     private func refreshHistoryAfterRun(historyRequest request: HistoryRequest? = nil) async -> Bool {
         let request = request ?? self.beginHistoryRequest()
@@ -2738,21 +2765,6 @@ public final class OpenClawChatViewModel {
                     "chat.ui pending cleared sessionKey=\(self.sessionKey) "
                         + "runId=\(runId) reason=\(reason)")
             }
-        }
-    }
-
-    private func pollHealthIfNeeded(force: Bool, sessionSnapshot: SessionSnapshot? = nil) async {
-        if !force, let last = lastHealthPollAt, Date().timeIntervalSince(last) < 10 {
-            return
-        }
-        self.lastHealthPollAt = Date()
-        do {
-            let ok = try await transport.requestHealth(timeoutMs: 5000)
-            if let sessionSnapshot, !self.isCurrentSession(sessionSnapshot) { return }
-            self.healthOK = ok
-        } catch {
-            if let sessionSnapshot, !self.isCurrentSession(sessionSnapshot) { return }
-            self.healthOK = false
         }
     }
 
