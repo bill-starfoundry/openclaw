@@ -263,14 +263,16 @@ export function resolveLoginFailureFeedback(
 }
 
 function renderLoginFailure(feedback: LoginFailureFeedback) {
+  // Collapsed by default on purpose: the failure title stays visible while the
+  // gate keeps its compact single-screen layout; users expand for recovery steps.
   return html`
-    <div
+    <details
       class="callout danger login-gate__failure"
       role="alert"
       aria-live="polite"
       data-kind=${feedback.kind}
     >
-      <div class="login-gate__failure-title">${feedback.title}</div>
+      <summary class="login-gate__failure-title">${feedback.title}</summary>
       <div class="login-gate__failure-summary">${feedback.summary}</div>
       <ol class="login-gate__failure-steps">
         ${feedback.steps.map((step) => html`<li>${step}</li>`)}
@@ -286,7 +288,7 @@ function renderLoginFailure(feedback: LoginFailureFeedback) {
         rel=${buildExternalLinkRel()}
         >${feedback.docsLabel}</a
       >
-    </div>
+    </details>
   `;
 }
 
@@ -313,9 +315,20 @@ function renderLoginGate(props: LoginGateProps) {
           <label class="field">
             <span>${t("overview.access.wsUrl")}</span>
             <input
+              inputmode="url"
+              autocapitalize="none"
+              autocorrect="off"
+              autocomplete="off"
+              spellcheck="false"
+              enterkeyhint="go"
               .value=${props.gatewayUrl}
               @input=${(e: Event) => {
                 props.onGatewayUrlChange((e.target as HTMLInputElement).value);
+              }}
+              @keydown=${(e: KeyboardEvent) => {
+                if (e.key === "Enter") {
+                  props.onConnect();
+                }
               }}
               placeholder="ws://127.0.0.1:18789"
             />
@@ -327,6 +340,7 @@ function renderLoginGate(props: LoginGateProps) {
                 type=${props.showGatewayToken ? "text" : "password"}
                 autocomplete="off"
                 spellcheck="false"
+                enterkeyhint="go"
                 .value=${props.token}
                 @input=${(e: Event) => {
                   props.onTokenChange((e.target as HTMLInputElement).value);
@@ -360,6 +374,7 @@ function renderLoginGate(props: LoginGateProps) {
                 type=${props.showGatewayPassword ? "text" : "password"}
                 autocomplete="off"
                 spellcheck="false"
+                enterkeyhint="go"
                 .value=${props.password}
                 @input=${(e: Event) => {
                   props.onPasswordChange((e.target as HTMLInputElement).value);
@@ -393,8 +408,8 @@ function renderLoginGate(props: LoginGateProps) {
           </button>
         </div>
         ${failure ? renderLoginFailure(failure) : ""}
-        <div class="login-gate__help">
-          <div class="login-gate__help-title">${t("overview.connection.title")}</div>
+        <details class="login-gate__help">
+          <summary class="login-gate__help-title">${t("overview.connection.title")}</summary>
           <ol class="login-gate__steps">
             <li>
               ${t("overview.connection.step1")}${renderConnectCommand("openclaw gateway run")}
@@ -411,7 +426,7 @@ function renderLoginGate(props: LoginGateProps) {
               >${t("overview.connection.docsLink")}</a
             >
           </div>
-        </div>
+        </details>
       </div>
     </div>
   `;
