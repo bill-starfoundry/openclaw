@@ -330,7 +330,9 @@ final class NodeAppModel {
         if self.isAppleReviewDemoModeEnabled {
             return AppleReviewDemoChatTransport()
         }
-        return IOSGatewayChatTransport(gateway: self.operatorSession)
+        return IOSGatewayChatTransport(
+            gateway: self.operatorSession,
+            globalAgentId: self.chatAgentId)
     }
 
     private(set) var activeGatewayConnectConfig: GatewayConnectConfig?

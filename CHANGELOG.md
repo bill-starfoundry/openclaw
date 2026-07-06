@@ -31,6 +31,7 @@ Docs: https://docs.openclaw.ai
 - **Lean local-model tools:** trim media generation, TTS, and PDF tools from lean agent surfaces while preserving explicit config and runtime opt-ins. (#88881) Thanks @vincentkoc.
 - **iOS development app identity:** keep the development app labeled OpenClaw while using its distinct debug icon to differentiate it from release builds.
 - **iOS QR gateway handoff:** stop VisionKit before delivering scanned setup codes, and keep deferred auth, approval, Watch, and foreground-node work bound to its originating gateway across reconnects. (#99572) Thanks @PollyBot13.
+- **Apple chat run recovery:** restore active responses from canonical Gateway history after reconnects, foreground resumes, and event gaps, while preserving gateway user-turn identity across Codex and Copilot transcript mirrors to prevent duplicate rows. (#100277)
 - **Agent terminal failures:** surface a safe interactive reply when an agent run ends without visible output, while preserving completed message-tool delivery and heartbeat-specific guidance. (#99304) Thanks @moeedahmed.
 - **MCP loopback tool results:** preserve schema-valid text, image, and embedded-resource content through HTTP tool calls while rendering malformed or protocol-incompatible blocks as safe text. (#100336) Thanks @tzy-17.
 - **Control UI tool-result images:** render direct image content blocks from Gateway history and make the delayed-send scroll E2E setup deterministic. (#100295) Thanks @lzyyzznl.
