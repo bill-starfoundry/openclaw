@@ -22,6 +22,7 @@ import { isSlackAnyNativeApprovalClientEnabled } from "../approval-native-gates.
 import {
   resolveSlackLookupClientOptions,
   resolveSlackProxyDispatcher,
+  resolveSlackSocketModeDispatcher,
   resolveSlackWebClientOptions,
 } from "../client-options.js";
 import { createSlackStartupAuthClient, createSlackWebClient } from "../client.js";
@@ -288,6 +289,10 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
   const slashCommand = resolveSlackSlashCommandConfig(opts.slashCommand ?? slackCfg.slashCommand);
   const mediaMaxBytes = (opts.mediaMaxMb ?? slackCfg.mediaMaxMb ?? 20) * 1024 * 1024;
   const slackDispatcher = resolveSlackProxyDispatcher();
+  // Socket Mode's WebSocket runs on its own undici, so it needs a dispatcher from
+  // that copy; the Web API dispatcher above stays paired with the runtime fetch.
+  const socketModeDispatcher =
+    slackMode === "socket" ? resolveSlackSocketModeDispatcher() : undefined;
   const clientOptions = resolveSlackWebClientOptions({}, slackDispatcher);
   const durableIngress = createSlackDurableIngress({
     accountId: account.accountId,
@@ -303,7 +308,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     signingSecret: signingSecret ?? undefined,
     slackWebhookPath,
     clientOptions: clientOptions as Record<string, unknown>,
-    dispatcher: slackDispatcher,
+    dispatcher: socketModeDispatcher,
     wrapReceiver: durableIngress.wrapReceiver,
     onContextIdentity: async (identity) => {
       const current = monitorContextRef.current;
@@ -823,6 +828,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     await durableIngress.stop();
     await gracefulStopSlackApp(app);
     await slackDispatcher?.close();
+    await socketModeDispatcher?.close();
   }
 }
 

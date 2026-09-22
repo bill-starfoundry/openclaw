@@ -1,5 +1,7 @@
+import { createRequire } from "node:module";
 import { WebAPIRateLimitedError, type RetryOptions, type WebClientOptions } from "@slack/web-api";
 import {
+  addActiveManagedProxyTlsOptions,
   createHttp1EnvHttpProxyAgent,
   captureChannelReadAuthority,
   resolveFetch,
@@ -9,8 +11,10 @@ import { isDebugProxyGlobalFetchPatchInstalled } from "openclaw/plugin-sdk/proxy
 import { parseRetryAfterHeaderSeconds, retryAsync } from "openclaw/plugin-sdk/retry-runtime";
 import { sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
 import { fetchWithRuntimeDispatcher } from "openclaw/plugin-sdk/runtime-fetch";
+import type { EnvHttpProxyAgent as SlackSocketModeEnvHttpProxyAgent } from "undici";
 
 export type SlackProxyDispatcher = ReturnType<typeof createHttp1EnvHttpProxyAgent>;
+export type SlackSocketModeDispatcher = SlackSocketModeEnvHttpProxyAgent;
 export type SlackLookupClientOptions = Pick<
   WebClientOptions,
   "fetch" | "slackApiUrl" | "teamId" | "timeout"
@@ -44,7 +48,7 @@ function normalizeSlackFetchInit(init?: RequestInit): RequestInit | undefined {
   return rest;
 }
 
-/** Build the dispatcher shared by Slack Web API fetches and Socket Mode. */
+/** Build the dispatcher for Slack Web API fetches (paired with the runtime fetch). */
 export function resolveSlackProxyDispatcher(): SlackProxyDispatcher | undefined {
   const options = resolveEnvHttpProxyAgentOptions();
   if (!options) {
@@ -54,6 +58,54 @@ export function resolveSlackProxyDispatcher(): SlackProxyDispatcher | undefined 
     return createHttp1EnvHttpProxyAgent(options, undefined, process.env);
   } catch {
     // Malformed proxy URL; degrade gracefully to direct connections.
+    return undefined;
+  }
+}
+
+type SlackSocketModeUndici = Pick<typeof import("undici"), "EnvHttpProxyAgent">;
+let slackSocketModeUndici: SlackSocketModeUndici | undefined;
+
+/**
+ * Load the undici copy that @slack/socket-mode opens its WebSocket with.
+ *
+ * Socket Mode 3 calls `new undici.WebSocket(url, { dispatcher })` with its own
+ * undici (7.x). A dispatcher from any other undici copy, such as OpenClaw's
+ * shared runtime dispatcher, fails the handshake immediately, so the Socket Mode
+ * dispatcher must come from this copy. The explicit `undici/index.js` subpath
+ * keeps Bun's bare-`undici` placeholder out of the dispatcher (the same reason
+ * the runtime loads undici this way); under Bun, Socket Mode's bare import gets
+ * Bun's WebSocket, which does not consult a dispatcher at all.
+ */
+function loadSlackSocketModeUndici(): SlackSocketModeUndici {
+  if (slackSocketModeUndici) {
+    return slackSocketModeUndici;
+  }
+  const requireFromPlugin = createRequire(import.meta.url);
+  const requireFromBolt = createRequire(requireFromPlugin.resolve("@slack/bolt/package.json"));
+  const requireFromSocketMode = createRequire(
+    requireFromBolt.resolve("@slack/socket-mode/package.json"),
+  );
+  slackSocketModeUndici = requireFromSocketMode("undici/index.js") as SlackSocketModeUndici;
+  return slackSocketModeUndici;
+}
+
+/**
+ * Build the env-proxy dispatcher for Socket Mode's WebSocket.
+ *
+ * Kept separate from the Web API dispatcher: that one is paired with the
+ * runtime fetch, this one with Socket Mode's own undici. Without a proxy env it
+ * returns undefined so Socket Mode keeps its default direct connection.
+ */
+export function resolveSlackSocketModeDispatcher(): SlackSocketModeDispatcher | undefined {
+  const options = resolveEnvHttpProxyAgentOptions();
+  if (!options) {
+    return undefined;
+  }
+  try {
+    const { EnvHttpProxyAgent } = loadSlackSocketModeUndici();
+    return new EnvHttpProxyAgent(addActiveManagedProxyTlsOptions(options));
+  } catch {
+    // Malformed proxy URL or unloadable undici: same fallback as the Web API dispatcher.
     return undefined;
   }
 }
