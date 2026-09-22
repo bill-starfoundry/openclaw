@@ -85,6 +85,7 @@ function loadSlackSocketModeUndici(): SlackSocketModeUndici {
   const requireFromSocketMode = createRequire(
     requireFromBolt.resolve("@slack/socket-mode/package.json"),
   );
+  // SAFETY: package-relative resolution pins this require to Socket Mode's declared undici.
   slackSocketModeUndici = requireFromSocketMode("undici/index.js") as SlackSocketModeUndici;
   return slackSocketModeUndici;
 }
