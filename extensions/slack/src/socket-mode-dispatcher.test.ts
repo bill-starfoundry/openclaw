@@ -1,20 +1,20 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
+import { resolveSlackProxyDispatcher, resolveSlackSocketModeDispatcher } from "./client-options.js";
 import {
   PROXY_FIXTURE_CERTIFICATE,
   PROXY_FIXTURE_KEY,
-} from "../../../src/test-helpers/proxy-tls-fixture.js";
-import { resolveSlackProxyDispatcher, resolveSlackSocketModeDispatcher } from "./client-options.js";
+} from "./socket-mode-dispatcher.test-fixture.js";
 
 const PROXY_KEYS = [
   "ALL_PROXY",
@@ -29,7 +29,7 @@ const PROXY_KEYS = [
   "OPENCLAW_PROXY_CA_FILE",
 ] as const;
 const originalEnv = { ...process.env };
-const tempDirs: string[] = [];
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const closers: Array<() => Promise<void> | void> = [];
 const execFileAsync = promisify(execFile);
 
@@ -226,9 +226,6 @@ describe("slack socket mode dispatcher", () => {
     for (const close of closers.splice(0).toReversed()) {
       await close();
     }
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { recursive: true, force: true });
-    }
     restoreProxyEnv();
   });
 
@@ -259,8 +256,7 @@ describe("slack socket mode dispatcher", () => {
   it("opens a trusted wss target through HTTPS_PROXY", async () => {
     const proxy = await startConnectProxy();
     const target = await startEchoWebSocketServer({ tls: true });
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openclaw-slack-target-ca-"));
-    tempDirs.push(dir);
+    const dir = tempDirs.make("openclaw-slack-target-ca-");
     const targetCaFile = path.join(dir, "ca.pem");
     writeFileSync(targetCaFile, PROXY_FIXTURE_CERTIFICATE);
     process.env.HTTPS_PROXY = proxy.url;
@@ -274,8 +270,7 @@ describe("slack socket mode dispatcher", () => {
   it("trusts an HTTPS CONNECT proxy only after the managed proxy CA is configured", async () => {
     const proxy = await startConnectProxy({ tls: true });
     const target = await startEchoWebSocketServer();
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openclaw-slack-proxy-ca-"));
-    tempDirs.push(dir);
+    const dir = tempDirs.make("openclaw-slack-proxy-ca-");
     const proxyCaFile = path.join(dir, "ca.pem");
     writeFileSync(proxyCaFile, PROXY_FIXTURE_CERTIFICATE);
     process.env.HTTP_PROXY = proxy.url;

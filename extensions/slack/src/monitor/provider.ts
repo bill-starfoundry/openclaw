@@ -21,8 +21,7 @@ import { resolveSlackAccount } from "../accounts.js";
 import { isSlackAnyNativeApprovalClientEnabled } from "../approval-native-gates.js";
 import {
   resolveSlackLookupClientOptions,
-  resolveSlackProxyDispatcher,
-  resolveSlackSocketModeDispatcher,
+  resolveSlackMonitorDispatchers,
   resolveSlackWebClientOptions,
 } from "../client-options.js";
 import { createSlackStartupAuthClient, createSlackWebClient } from "../client.js";
@@ -288,12 +287,8 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
   const slackCfg = account.config;
   const slashCommand = resolveSlackSlashCommandConfig(opts.slashCommand ?? slackCfg.slashCommand);
   const mediaMaxBytes = (opts.mediaMaxMb ?? slackCfg.mediaMaxMb ?? 20) * 1024 * 1024;
-  const slackDispatcher = resolveSlackProxyDispatcher();
-  // Socket Mode's WebSocket runs on its own undici, so it needs a dispatcher from
-  // that copy; the Web API dispatcher above stays paired with the runtime fetch.
-  const socketModeDispatcher =
-    slackMode === "socket" ? resolveSlackSocketModeDispatcher() : undefined;
-  const clientOptions = resolveSlackWebClientOptions({}, slackDispatcher);
+  const slackDispatchers = resolveSlackMonitorDispatchers(slackMode);
+  const clientOptions = resolveSlackWebClientOptions({}, slackDispatchers.webApi);
   const durableIngress = createSlackDurableIngress({
     accountId: account.accountId,
     ...(runtime.log ? { onLog: runtime.log } : {}),
@@ -308,7 +303,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     signingSecret: signingSecret ?? undefined,
     slackWebhookPath,
     clientOptions: clientOptions as Record<string, unknown>,
-    dispatcher: socketModeDispatcher,
+    dispatcher: slackDispatchers.socketMode,
     wrapReceiver: durableIngress.wrapReceiver,
     onContextIdentity: async (identity) => {
       const current = monitorContextRef.current;
@@ -525,7 +520,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     presenceRequestAbort = new AbortController();
     const options = resolveSlackLookupClientOptions(
       { ...clientOptions, timeout: SLACK_PRESENCE_REQUEST_TIMEOUT_MS },
-      slackDispatcher,
+      slackDispatchers.webApi,
     );
     options.fetch = withSlackPresenceLifecycleSignal(
       options.fetch ?? globalThis.fetch,
@@ -827,8 +822,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     unregisterHttpHandler?.();
     await durableIngress.stop();
     await gracefulStopSlackApp(app);
-    await slackDispatcher?.close();
-    await socketModeDispatcher?.close();
+    await slackDispatchers.close();
   }
 }
 

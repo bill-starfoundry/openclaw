@@ -113,6 +113,20 @@ export function resolveSlackSocketModeDispatcher(): SlackSocketModeDispatcher | 
   }
 }
 
+/** Pair each Slack monitor transport with the dispatcher from the undici copy it uses. */
+export function resolveSlackMonitorDispatchers(mode: "socket" | "http" | "relay") {
+  const webApi = resolveSlackProxyDispatcher();
+  const socketMode = mode === "socket" ? resolveSlackSocketModeDispatcher() : undefined;
+  return {
+    webApi,
+    socketMode,
+    close: async () => {
+      await webApi?.close();
+      await socketMode?.close();
+    },
+  };
+}
+
 const DIRECT_SLACK_DISPATCHER_OPTIONS = {
   httpProxy: "",
   httpsProxy: "",
