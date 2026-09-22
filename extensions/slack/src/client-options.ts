@@ -101,11 +101,14 @@ export function resolveSlackSocketModeDispatcher(): SlackSocketModeDispatcher | 
   if (!options) {
     return undefined;
   }
+  // Loading the matching runtime is part of the Socket Mode compatibility
+  // contract. Do not silently bypass a configured proxy if packaging breaks it.
+  const { EnvHttpProxyAgent } = loadSlackSocketModeUndici();
+  const agentOptions = addActiveManagedProxyTlsOptions(options);
   try {
-    const { EnvHttpProxyAgent } = loadSlackSocketModeUndici();
-    return new EnvHttpProxyAgent(addActiveManagedProxyTlsOptions(options));
+    return new EnvHttpProxyAgent(agentOptions);
   } catch {
-    // Malformed proxy URL or unloadable undici: same fallback as the Web API dispatcher.
+    // Preserve the existing direct-connection fallback for malformed proxy URLs.
     return undefined;
   }
 }
