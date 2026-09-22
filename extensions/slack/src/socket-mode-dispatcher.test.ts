@@ -10,11 +10,29 @@ import { promisify } from "node:util";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
-import { resolveSlackProxyDispatcher, resolveSlackSocketModeDispatcher } from "./client-options.js";
-import {
-  PROXY_FIXTURE_CERTIFICATE,
-  PROXY_FIXTURE_KEY,
-} from "./socket-mode-dispatcher.test-fixture.js";
+import { resolveSlackMonitorDispatchers } from "./client-options.js";
+
+// Public test-only material. Valid through 2126; SANs cover the fixture host and loopback.
+const PROXY_FIXTURE_CERTIFICATE = `-----BEGIN CERTIFICATE-----
+MIIBsDCCAVagAwIBAgIUYQmcXrXXGwb7iM9LvhwniX+tYY8wCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQZmlsZXMucHJveHkudGVzdDAgFw0yNjA4MjgwMDM2NDlaGA8y
+MTI2MDgwNDAwMzY0OVowGzEZMBcGA1UEAwwQZmlsZXMucHJveHkudGVzdDBZMBMG
+ByqGSM49AgEGCCqGSM49AwEHA0IABLZqBKM03chE4ezcYB0l3E7SyeaqBbZF624k
+p5Fuf97TzZNHxLHn/I9wBzICnqEQfX2De0X8JPv9AaIab3oFmF6jdjB0MB0GA1Ud
+DgQWBBRQmY8ZLuaAJjUU4JiehaVg+f+KoDAfBgNVHSMEGDAWgBRQmY8ZLuaAJjUU
+4JiehaVg+f+KoDAPBgNVHRMBAf8EBTADAQH/MCEGA1UdEQQaMBiCEGZpbGVzLnBy
+b3h5LnRlc3SHBH8AAAEwCgYIKoZIzj0EAwIDSAAwRQIhAL9IXiyh36hCytGAMVBn
+6/BdZ4GB+I9sJxihRSip4G+wAiAsSHjAkfx+Yn8VgTrjXWOF9dGhzxnD/kWC4BMK
+j3DhDg==
+-----END CERTIFICATE-----`;
+const PRIVATE_KEY_LABEL = "PRIVATE KEY";
+const PROXY_FIXTURE_KEY = [
+  `-----BEGIN ${PRIVATE_KEY_LABEL}-----`, // pragma: allowlist secret
+  "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgfspG17/CYh4YJnUX",
+  "Wg6IAGuJtpZH2Kw8B0TE9aBKz26hRANCAAS2agSjNN3IROHs3GAdJdxO0snmqgW2",
+  "RetuJKeRbn/e082TR8Sx5/yPcAcyAp6hEH19g3tF/CT7/QGiGm96BZhe",
+  `-----END ${PRIVATE_KEY_LABEL}-----`,
+].join("\n");
 
 const PROXY_KEYS = [
   "ALL_PROXY",
@@ -155,14 +173,15 @@ async function echoThroughTrustedChildProcess(options: {
 }): Promise<{ ok: true; echoed: string }> {
   const script = `
     import { createRequire } from "node:module";
-    import { resolveSlackSocketModeDispatcher } from "./extensions/slack/src/client-options.ts";
+    import { resolveSlackMonitorDispatchers } from "./extensions/slack/src/client-options.ts";
     const requireFromTest = createRequire(
       new URL("./extensions/slack/src/client-options.ts", import.meta.url),
     );
     const requireFromBolt = createRequire(requireFromTest.resolve("@slack/bolt/package.json"));
     const requireFromSocketMode = createRequire(requireFromBolt.resolve("@slack/socket-mode/package.json"));
     const { WebSocket } = requireFromSocketMode("undici");
-    const dispatcher = resolveSlackSocketModeDispatcher();
+    const dispatchers = resolveSlackMonitorDispatchers("socket");
+    const dispatcher = dispatchers.socketMode;
     const result = await new Promise((resolve, reject) => {
       const ws = new WebSocket(process.env.TEST_WEBSOCKET_URL, { dispatcher });
       const timer = setTimeout(() => reject(new Error("WebSocket echo timed out")), 5_000);
@@ -173,6 +192,7 @@ async function echoThroughTrustedChildProcess(options: {
       });
       ws.addEventListener("error", reject);
     });
+    await dispatchers.close();
     process.stdout.write(JSON.stringify(result), () => process.exit(0));
   `;
   const { stdout } = await execFileAsync(
@@ -229,28 +249,30 @@ describe("slack socket mode dispatcher", () => {
     restoreProxyEnv();
   });
 
-  it("keeps Socket Mode's default connection when no proxy env is set", () => {
-    expect(resolveSlackSocketModeDispatcher()).toBeUndefined();
+  it("keeps Socket Mode's default connection when no proxy env is set", async () => {
+    const dispatchers = resolveSlackMonitorDispatchers("socket");
+    expect(dispatchers.socketMode).toBeUndefined();
+    await dispatchers.close();
   });
 
   it("builds the dispatcher from the undici copy Socket Mode uses", async () => {
     process.env.HTTPS_PROXY = "http://proxy.example.com:3128";
-    const dispatcher = resolveSlackSocketModeDispatcher();
-    const webApiDispatcher = resolveSlackProxyDispatcher();
+    const dispatchers = resolveSlackMonitorDispatchers("socket");
     try {
-      expect(dispatcher).toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
+      expect(dispatchers.socketMode).toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
       // The Web API dispatcher comes from the runtime's undici and must not be
       // handed to Socket Mode.
-      expect(webApiDispatcher).not.toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
+      expect(dispatchers.webApi).not.toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
     } finally {
-      await dispatcher?.close();
-      await webApiDispatcher?.close();
+      await dispatchers.close();
     }
   });
 
-  it("preserves the direct fallback for a malformed proxy URL", () => {
+  it("preserves the direct fallback for a malformed proxy URL", async () => {
     process.env.HTTPS_PROXY = "://invalid-proxy";
-    expect(resolveSlackSocketModeDispatcher()).toBeUndefined();
+    const dispatchers = resolveSlackMonitorDispatchers("socket");
+    expect(dispatchers.socketMode).toBeUndefined();
+    await dispatchers.close();
   });
 
   it("opens a trusted wss target through HTTPS_PROXY", async () => {
@@ -275,30 +297,29 @@ describe("slack socket mode dispatcher", () => {
     writeFileSync(proxyCaFile, PROXY_FIXTURE_CERTIFICATE);
     process.env.HTTP_PROXY = proxy.url;
 
-    const untrustedDispatcher = resolveSlackSocketModeDispatcher();
+    const untrustedDispatchers = resolveSlackMonitorDispatchers("socket");
     try {
       await expect(
-        echoThroughSocketModeWebSocket(target, untrustedDispatcher),
+        echoThroughSocketModeWebSocket(target, untrustedDispatchers.socketMode),
       ).resolves.toMatchObject({
         ok: false,
       });
       expect(proxy.secureConnections()).toBe(0);
     } finally {
-      await untrustedDispatcher?.close();
+      await untrustedDispatchers.close();
     }
 
     process.env.OPENCLAW_PROXY_ACTIVE = "1";
     process.env.OPENCLAW_PROXY_CA_FILE = proxyCaFile;
-    const trustedDispatcher = resolveSlackSocketModeDispatcher();
+    const trustedDispatchers = resolveSlackMonitorDispatchers("socket");
     try {
-      await expect(echoThroughSocketModeWebSocket(target, trustedDispatcher)).resolves.toEqual({
-        ok: true,
-        echoed: "hello",
-      });
+      await expect(
+        echoThroughSocketModeWebSocket(target, trustedDispatchers.socketMode),
+      ).resolves.toEqual({ ok: true, echoed: "hello" });
       expect(proxy.secureConnections()).toBe(1);
       expect(proxy.targets).toContain(target.replace("ws://", ""));
     } finally {
-      await trustedDispatcher?.close();
+      await trustedDispatchers.close();
     }
   });
 
@@ -308,15 +329,17 @@ describe("slack socket mode dispatcher", () => {
     process.env.HTTPS_PROXY = proxy.url;
     process.env.HTTP_PROXY = proxy.url;
 
-    const dispatcher = resolveSlackSocketModeDispatcher();
+    const dispatchers = resolveSlackMonitorDispatchers("socket");
     try {
-      await expect(echoThroughSocketModeWebSocket(target, dispatcher)).resolves.toEqual({
-        ok: true,
-        echoed: "hello",
-      });
+      await expect(echoThroughSocketModeWebSocket(target, dispatchers.socketMode)).resolves.toEqual(
+        {
+          ok: true,
+          echoed: "hello",
+        },
+      );
       expect(proxy.targets).toContain(target.replace("ws://", ""));
     } finally {
-      await dispatcher?.close();
+      await dispatchers.close();
     }
   });
 });

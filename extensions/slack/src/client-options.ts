@@ -49,7 +49,7 @@ function normalizeSlackFetchInit(init?: RequestInit): RequestInit | undefined {
 }
 
 /** Build the dispatcher for Slack Web API fetches (paired with the runtime fetch). */
-export function resolveSlackProxyDispatcher(): SlackProxyDispatcher | undefined {
+function resolveSlackProxyDispatcher(): SlackProxyDispatcher | undefined {
   const options = resolveEnvHttpProxyAgentOptions();
   if (!options) {
     return undefined;
@@ -96,7 +96,7 @@ function loadSlackSocketModeUndici(): SlackSocketModeUndici {
  * runtime fetch, this one with Socket Mode's own undici. Without a proxy env it
  * returns undefined so Socket Mode keeps its default direct connection.
  */
-export function resolveSlackSocketModeDispatcher(): SlackSocketModeDispatcher | undefined {
+function resolveSlackSocketModeDispatcher(): SlackSocketModeDispatcher | undefined {
   const options = resolveEnvHttpProxyAgentOptions();
   if (!options) {
     return undefined;
