@@ -260,9 +260,13 @@ describe("slack socket mode dispatcher", () => {
     const dispatchers = resolveSlackMonitorDispatchers("socket");
     try {
       expect(dispatchers.socketMode).toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
-      // The Web API dispatcher comes from the runtime's undici and must not be
-      // handed to Socket Mode.
-      expect(dispatchers.webApi).not.toBeInstanceOf(loadSocketModeUndici().EnvHttpProxyAgent);
+      // A shared undici copy can reuse the runtime's custom proxy routing; a
+      // separate copy needs its own dispatcher for the WebSocket handshake.
+      if (dispatchers.webApi instanceof loadSocketModeUndici().EnvHttpProxyAgent) {
+        expect(dispatchers.socketMode).toBe(dispatchers.webApi);
+      } else {
+        expect(dispatchers.socketMode).not.toBe(dispatchers.webApi);
+      }
     } finally {
       await dispatchers.close();
     }
